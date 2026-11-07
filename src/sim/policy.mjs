@@ -139,9 +139,9 @@ function ownLoad(ticket, model) {
   return { perStation, sdSec: Math.sqrt(variance) };
 }
 
-export function createPolicy(id = "adaptive") {
+export function createPolicy(id = "adaptive", { prepPrior = null } = {}) {
   if (!POLICY_IDS.includes(id)) throw new Error(`unknown policy: ${id}`);
-  const prep = new PrepModel();
+  const prep = new PrepModel({ prior: prepPrior });
   const courier = new CourierModel();
   let seenCompleted = 0;
   let seenCouriers = 0;

@@ -1,3 +1,4 @@
+import { publicNetwork, trainShadow } from "./nn.mjs";
 import { STATIONS } from "./menu.mjs";
 import { summarizeWaiters } from "./waiters.mjs";
 
@@ -238,7 +239,7 @@ export class Engine {
       item.doneAt = atSec;
       ticket.itemsDone += 1;
       ticket.lastItemDoneAt = Math.max(ticket.lastItemDoneAt ?? 0, atSec);
-      this.completedSamples.push({ itemId: completed.itemId, serviceSec: completed.prepSec });
+      this.completedSamples.push({ itemId: completed.itemId, serviceSec: completed.prepSec, t: atSec });
     }
   }
 
@@ -521,6 +522,7 @@ export class Engine {
       duplicates: this.duplicates,
       courierSamples: this.courierSamples.length,
       completedSamples: this.completedSamples.length,
+      network: publicNetwork(trainShadow(this.completedSamples)),
     };
   }
 }

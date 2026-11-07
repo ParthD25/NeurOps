@@ -49,6 +49,7 @@ export function buildCoachFacts({ result }) {
     risky,
     nextFires,
     onlineOrders: m.tickets,
+    network: result.network?.summary ?? null,
   };
 }
 
@@ -68,6 +69,11 @@ export function buildCoachBrief(facts) {
   if (facts.risky?.length) {
     const top = facts.risky[0];
     lines.push(`Highest current risk: ${top.id}${top.waiter ? ` for ${top.waiter}` : ""} with ${top.lateRiskSec}s of projected lateness.`);
+  }
+  if (facts.network?.steps) {
+    lines.push(
+      `The shadow neural network trained on ${facts.network.steps} finished dishes: prep error ${facts.network.firstTenMaeSec}s over its first ten, ${facts.network.lastTenMaeSec}s over its last ten, against ${facts.network.menuOnlyMaeSec}s for the menu alone.`,
+    );
   }
   lines.push("Advice is advisory only: the deterministic scheduler keeps firing, and no ticket is finished until every dish is done.");
   return lines.join(" ");

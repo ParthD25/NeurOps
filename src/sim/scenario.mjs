@@ -58,7 +58,7 @@ function makeTicket({ rng, index, arrivalSec, opts = {} }) {
     items.push({
       lineId: `L${i + 1}`,
       itemId,
-      prepSec: prepFor(item, rng),
+      prepSec: Math.round(prepFor(item, rng) * (opts.prepFactor?.[itemId] ?? 1)),
       station: item.station,
       course: opts.course ?? 0,
     });
@@ -315,6 +315,21 @@ export const SCENARIOS = [
 ];
 
 const BY_ID = new Map(SCENARIOS.map((s) => [s.id, s]));
+
+// One ordinary service day for the model lifecycle. The day number seeds the
+// orders, and prepFactor describes this particular kitchen: how much slower
+// or faster each dish really is than the menu's assumption.
+export function restaurantDay({ day, prepFactor = {}, count = 30, durationSec = 3600 }) {
+  const id = `restaurant-day-${day}`;
+  return {
+    id,
+    title: `Day ${day}`,
+    blurb: "One service day in the model lifecycle.",
+    durationSec,
+    unavailable: [],
+    tickets: generateShift({ id, count, durationSec, meanGapSec: 110, opts: { prepFactor } }).tickets,
+  };
+}
 
 export function listScenarios() {
   return SCENARIOS.map((s) => ({

@@ -8,6 +8,9 @@ import { getScenario, listScenarios, scenarioSummary } from "./src/sim/scenario.
 import { menuName } from "./src/sim/menu.mjs";
 import { buildBrief, buildFacts, guardNumbers, llmBrief } from "./src/brief.mjs";
 import { buildCoachBrief, buildCoachFacts, guardCoach, llmCoach } from "./src/coach.mjs";
+import { sanitizeProposal, tuneNetwork } from "./src/tuner.mjs";
+import { publicNetwork, samplesFromSteps, trainShadow } from "./src/sim/nn.mjs";
+import { simulateLifecycle } from "./src/sim/lifecycle.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(HERE, "public");
@@ -113,6 +116,33 @@ function parseSeed(value) {
     throw new HttpError(400, "seed must be an integer between 0 and 2147483647");
   }
   return seed;
+}
+
+// Interventions come back from the browser, so each one is re-sanitized here:
+// only clamped numbers on known items can reach the network.
+function parseInterventions(value) {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > 60) throw new HttpError(400, "interventions must be an array of at most 60 changes");
+  return value.map((entry) => {
+    const atSec = Number(entry?.atSec);
+    if (!Number.isFinite(atSec) || atSec < 0) throw new HttpError(400, "each intervention needs a non-negative atSec");
+    const { change } = sanitizeProposal(entry);
+    return { atSec, ...change, source: entry?.source === "llm" ? "llm" : "rules" };
+  });
+}
+
+// The 9-week lifecycle is deterministic and takes ~20s to simulate, so it is
+// precomputed into data/lifecycle.json (npm run lifecycle) and served from
+// memory. Without the file it is simulated once on first request.
+let lifecycleCache = null;
+async function loadLifecycle() {
+  if (lifecycleCache) return lifecycleCache;
+  try {
+    lifecycleCache = JSON.parse(await readFile(path.join(HERE, "data", "lifecycle.json"), "utf8"));
+  } catch {
+    lifecycleCache = simulateLifecycle();
+  }
+  return lifecycleCache;
 }
 
 function withNames(result) {
@@ -294,6 +324,28 @@ async function handleApi(req, res, url, options) {
       });
     }
     return sendJson(res, 200, { source: "llm", text: llm.text, guard, facts, note: null });
+  }
+
+  if (pathname === "/api/lifecycle" && method === "GET") {
+    return sendJson(res, 200, await loadLifecycle());
+  }
+
+  if (pathname === "/api/network/tune" && method === "POST") {
+    const body = await readJson(req);
+    const scenarioId = parseScenarioId(body.scenarioId);
+    const policy = parsePolicy(body.policy);
+    const seed = parseSeed(body.seed);
+    const atSec = Number(body.atSec);
+    if (!Number.isFinite(atSec) || atSec < 0) throw new HttpError(400, "atSec must be a non-negative number");
+    const interventions = parseInterventions(body.interventions);
+    const result = runCached({ scenarioId, policy, seed });
+    const samples = samplesFromSteps(result.network.steps);
+    const apiKey = typeof body.apiKey === "string" && body.apiKey.trim() ? body.apiKey.trim() : process.env.OPENROUTER_API_KEY;
+    const model = typeof body.model === "string" && body.model ? body.model : "openai/gpt-4o-mini";
+    const turn = await tuneNetwork({ samples, interventions, atSec, apiKey, model, fetchImpl: options.llmFetch ?? globalThis.fetch });
+    const all = turn.intervention ? [...interventions, turn.intervention] : interventions;
+    const network = publicNetwork(trainShadow(samples, { interventions: all }));
+    return sendJson(res, 200, { decision: turn.decision, note: turn.note, facts: turn.facts, interventions: all, network });
   }
 
   if (pathname === "/api/override" && method === "POST") {

@@ -8,18 +8,23 @@ import { clamp } from "./rng.mjs";
 const PRIOR_STRENGTH = 2;
 
 export class PrepModel {
-  constructor({ priorStrength = PRIOR_STRENGTH } = {}) {
+  // prior(itemId) -> seconds replaces the menu median as the starting belief.
+  // The model lifecycle uses it to hand the promoted network's knowledge of
+  // this restaurant to the scheduler at the start of each shift.
+  constructor({ priorStrength = PRIOR_STRENGTH, prior = null } = {}) {
     this.priorStrength = priorStrength;
+    this.prior = prior;
     this.stats = new Map();
   }
 
   seed(itemId) {
     const item = itemById(itemId);
+    const priorMean = this.prior ? this.prior(itemId) : item.medianSec;
     return {
       n: 0,
-      mean: item.medianSec,
+      mean: priorMean,
       m2: 0,
-      priorMean: item.medianSec,
+      priorMean,
       priorVar: (item.medianSec * item.cv) ** 2,
     };
   }
@@ -47,7 +52,7 @@ export class PrepModel {
       sdSec: Math.sqrt(Math.max(120, variance)),
       samples: entry.n,
       source: entry.n === 0 ? "prior" : "learned",
-      priorMeanSec: item.medianSec,
+      priorMeanSec: entry.priorMean,
     };
   }
 

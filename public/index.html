@@ -4,97 +4,90 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Fireline — kitchen pacing agent</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%2318181b'/%3E%3Cpath d='M16 6c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-4 2-7 2 1 3 3 3 5 1-3 1-6 1-10z' fill='%23e8462a'/%3E%3C/svg%3E" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%231a9e8f'/%3E%3Cpath d='M16 6c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-4 2-7 2 1 3 3 3 5 1-3 1-6 1-10z' fill='%23fff'/%3E%3C/svg%3E" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=JetBrains+Mono:wght@400;600;700&family=Share+Tech+Mono&display=swap" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&family=Share+Tech+Mono&display=swap" />
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-<div class="shell">
-  <aside class="rail">
-    <div class="mark" aria-hidden="true">
-      <svg viewBox="0 0 32 32"><path d="M16 4c1.2 4.6 7 7 7 13.6a7 7 0 0 1-14 0c0-3.4 2.3-4.7 2.3-8 2.3 1.2 3.5 3.4 3.5 5.7 1.2-3.4 1.2-6.9 1.2-11.3z"/></svg>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="chair" viewBox="0 0 20 22">
+    <path d="M4 2.5h12a1.5 1.5 0 0 1 1.5 1.5v8.5h-15V4A1.5 1.5 0 0 1 4 2.5z"/>
+    <path d="M2.5 12.5h15v3h-15zM4 15.5v5M16 15.5v5"/>
+  </symbol>
+</svg>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 4c1.2 4.6 7 7 7 13.6a7 7 0 0 1-14 0c0-3.4 2.3-4.7 2.3-8 2.3 1.2 3.5 3.4 3.5 5.7 1.2-3.4 1.2-6.9 1.2-11.3z"/></svg></span>
+      <span class="brand-name"><b>Fireline</b><small>Kitchen pacing</small></span>
     </div>
+    <form class="controls" id="run-form">
+      <label>Shift<select id="scenario" name="scenario"></select></label>
+      <label>Policy<select id="policy" name="policy"></select></label>
+      <label class="seed">Seed<input id="seed" name="seed" type="number" min="0" max="2147483647" value="7" /></label>
+      <button type="submit" id="run-btn">Run shift</button>
+    </form>
+    <div class="status-pill"><span class="live-dot" aria-hidden="true"></span><span id="status" aria-live="polite">connecting…</span></div>
+  </header>
+
+  <aside class="sidebar">
     <nav class="tabs" role="tablist" aria-label="Views">
-      <button role="tab" aria-selected="true" data-view="board" id="tab-board">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="7" height="16" rx="2"/><rect x="14" y="4" width="7" height="9" rx="2"/><rect x="14" y="16" width="7" height="4" rx="2"/></svg>
-        <span>Pass</span>
-      </button>
-      <button role="tab" aria-selected="false" data-view="floor" id="tab-floor">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="3.5"/><rect x="13" y="13" width="8" height="6" rx="2"/><circle cx="17" cy="6" r="2"/><circle cx="6" cy="17" r="2"/></svg>
-        <span>Floor</span>
-      </button>
-      <button role="tab" aria-selected="false" data-view="plan" id="tab-plan">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg>
-        <span>Fire plan</span>
-      </button>
-      <button role="tab" aria-selected="false" data-view="model" id="tab-model">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="12" cy="12" r="2.4"/><circle cx="19" cy="12" r="2"/><path d="M7 7l3 4M7 17l3-4M14.4 12H17"/></svg>
-        <span>Model</span>
-      </button>
-      <button role="tab" aria-selected="false" data-view="evidence" id="tab-evidence">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
-        <span>Evidence</span>
-      </button>
-      <button role="tab" aria-selected="false" data-view="idea" id="tab-idea">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg>
-        <span>Idea</span>
-      </button>
+      <button role="tab" aria-selected="true" data-view="board" id="tab-board"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="7" height="7" rx="2"/><rect x="14" y="4" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="6" rx="2"/><path d="M14 15h7M14 19h5"/></svg><span>Order Line</span></button>
+      <button role="tab" aria-selected="false" data-view="floor" id="tab-floor"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h18M5 9v10M19 9v10M9 9v6M15 9v6M8 5h8"/></svg><span>Manage Tables</span></button>
+      <button role="tab" aria-selected="false" data-view="plan" id="tab-plan"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg><span>Fire Plan</span></button>
+      <button role="tab" aria-selected="false" data-view="model" id="tab-model"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="12" cy="12" r="2.4"/><circle cx="19" cy="12" r="2"/><path d="M7 7l3 4M7 17l3-4M14.4 12H17"/></svg><span>Neural Net</span></button>
+      <button role="tab" aria-selected="false" data-view="evidence" id="tab-evidence"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Evidence</span></button>
+      <button role="tab" aria-selected="false" data-view="idea" id="tab-idea"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg><span>The Idea</span></button>
     </nav>
+    <div class="side-card" id="side-model"></div>
   </aside>
 
   <div class="stage">
-    <header class="topbar">
-      <div class="brand">
-        <h1>Fireline</h1>
-        <p><span class="live-dot" aria-hidden="true"></span><span id="status" aria-live="polite">connecting…</span></p>
-      </div>
-      <form class="controls" id="run-form">
-        <label>Shift
-          <select id="scenario" name="scenario"></select>
-        </label>
-        <label>Policy
-          <select id="policy" name="policy"></select>
-        </label>
-        <label class="seed">Seed
-          <input id="seed" name="seed" type="number" min="0" max="2147483647" value="7" />
-        </label>
-        <button type="submit" id="run-btn">Run shift</button>
-      </form>
-    </header>
-
     <main>
       <section class="view" id="view-board" role="tabpanel" aria-labelledby="tab-board">
-        <div class="expo-bar" id="expo-bar"></div>
-        <div class="metrics" id="metrics"></div>
-        <div class="board">
-          <div class="lanes" id="lanes"></div>
-          <div class="tickets" id="tickets"></div>
+        <div class="page-head">
+          <h2>Order Line</h2>
+          <div class="expo-clock" id="expo-clock"></div>
         </div>
+        <div class="filters" id="filters" role="group" aria-label="Filter orders"></div>
+        <div class="metrics" id="metrics"></div>
+        <h3 class="block-title">Stations</h3>
+        <div class="lanes" id="lanes"></div>
+        <h3 class="block-title">Orders <span class="hint">tap an order to see why it fires when it does · nothing is bumped automatically</span></h3>
+        <div class="tickets" id="tickets"></div>
       </section>
 
       <section class="view hidden" id="view-floor" role="tabpanel" aria-labelledby="tab-floor">
-        <div class="view-head">
-          <div>
-            <h2>The floor, live</h2>
-            <p>Ten-minute check standard, fifteen-minute food standard. A table turns amber when a check is due and solid red when a guest has waited too long. Nothing is marked checked automatically.</p>
+        <div class="floor-layout">
+          <div class="floor-list">
+            <div class="service-metrics" id="service-metrics"></div>
+            <h3 class="block-title">Server calls</h3>
+            <div class="service-calls" id="service-calls"></div>
+            <h3 class="block-title">Tables</h3>
+            <div class="table-list" id="table-list"></div>
           </div>
-          <ul class="legend" aria-label="Table status">
-            <li><i class="lg-ok"></i>Seated</li>
-            <li><i class="lg-warn"></i>Check due</li>
-            <li><i class="lg-alert"></i>Waiting long</li>
-            <li><i class="lg-done"></i>Served</li>
-            <li><i class="lg-upcoming"></i>Not seated</li>
-          </ul>
+          <div class="floor-main">
+            <div class="page-head">
+              <h2>Manage Tables</h2>
+              <div class="segmented" id="section-tabs" role="group" aria-label="Section"></div>
+            </div>
+            <ul class="legend" aria-label="Table status">
+              <li><i class="lg-free"></i>Available</li>
+              <li><i class="lg-ok"></i>Seated</li>
+              <li><i class="lg-warn"></i>Check due</li>
+              <li><i class="lg-alert"></i>Waiting long</li>
+              <li><i class="lg-done"></i>Served</li>
+            </ul>
+            <div class="floor-map" id="floor-map"></div>
+            <p class="fine">Ten-minute check standard, fifteen-minute food standard. A table turns amber when a check is due and solid red when a guest has waited too long. Nothing is marked checked automatically.</p>
+          </div>
         </div>
-        <div class="service-metrics" id="service-metrics"></div>
-        <div class="service-calls" id="service-calls"></div>
-        <div class="floor-map" id="floor-map"></div>
       </section>
 
       <section class="view hidden" id="view-plan" role="tabpanel" aria-labelledby="tab-plan">
-        <div class="view-head">
+        <div class="page-head">
           <div>
             <h2>Every dish, every table, next 15 minutes</h2>
             <p>Each row is a dish start, not a ticket. The steak goes on before the fries so both leave the pass together, and each table course has its own serve time.</p>
@@ -115,25 +108,75 @@
       </section>
 
       <section class="view hidden" id="view-model" role="tabpanel" aria-labelledby="tab-model">
-        <div class="view-head">
+        <div class="page-head">
           <div>
-            <h2>The model, learning during the shift</h2>
-            <p>Every finished dish is one training step. The trace is prediction error: what the agent expected a dish to take when it decided to fire it, minus what it really took. These are two small online estimators, not a deep network. They are drawn like a training run because that is what they are doing.</p>
+            <h2>Neural Net</h2>
+            <p class="lede">A small neural network learns prep times while the shift runs. Every finished dish is one training step: it predicts, sees the real time, and moves its weights and biases by gradient descent. Edges show the real weights at this moment of the shift.</p>
           </div>
+          <span class="mode-pill" id="nn-mode">shadow mode</span>
         </div>
+        <div class="card releases">
+          <div class="agent-head">
+            <h3 class="block-title">Model releases · every 3 weeks</h3>
+            <span class="fine" id="release-kitchen"></span>
+          </div>
+          <p class="fine">The network keeps training on every finished dish, every day. Every 21 days it is scored against the model in production on the last three days of dishes, and replaces it automatically only if its error is lower. The model in production sets the fire scheduler's prep-time starting point at the start of each shift.</p>
+          <div class="kpis" id="release-kpis"></div>
+          <div class="chart-legend" aria-hidden="true">
+            <span><i class="sw prod"></i>In production</span>
+            <span><i class="sw chal"></i>Retraining (challenger)</span>
+            <span><i class="sw menu"></i>Menu medians</span>
+          </div>
+          <div class="chart" id="release-chart"></div>
+          <details class="chart-table">
+            <summary>Show the review table</summary>
+            <div id="release-table"></div>
+          </details>
+        </div>
+
+        <h3 class="block-title">Training live during this shift</h3>
         <div class="scope">
-          <div class="scope-net">
-            <canvas id="net-canvas" aria-label="Estimator graph: menu items feed station prep models, which feed the fire decision"></canvas>
-          </div>
-          <div class="scope-trace">
-            <canvas id="loss-canvas" aria-label="Prediction error over the shift"></canvas>
-          </div>
+          <div class="scope-net"><canvas id="net-canvas" aria-label="Network graph: menu-item inputs, hidden units, predicted prep time. Edge brightness is weight size."></canvas></div>
+          <div class="scope-trace"><canvas id="loss-canvas" aria-label="Rolling prediction error of the network against the menu-only baseline"></canvas></div>
           <div class="scope-readouts" id="scope-readouts"></div>
+        </div>
+        <div class="card agent">
+          <div class="agent-head">
+            <h3 class="block-title">AI agent</h3>
+            <label class="switch"><input type="checkbox" id="agent-auto" /><span class="track" aria-hidden="true"></span>Tune live as dishes finish</label>
+            <button type="button" id="agent-btn" class="ghost">Ask agent now</button>
+          </div>
+          <p class="fine" id="agent-source">Every five finished dishes the agent reads the network's recent errors and proposes changes to it: the learning rate, the output bias, or a correction for one dish. With an OpenRouter key the proposal comes from that model; without one, a rule agent proposes. Either way the server applies a change only if it lowers error on the newest dishes, which the proposal was not built from.</p>
+          <div class="keyrow">
+            <input id="api-key" type="password" placeholder="OpenRouter key (optional)" autocomplete="off" spellcheck="false" />
+            <select id="model">
+              <option value="openai/gpt-4o-mini">gpt-4o-mini</option>
+              <option value="google/gemini-2.5-flash">gemini-2.5-flash</option>
+              <option value="anthropic/claude-haiku-4.5">claude-haiku-4.5</option>
+              <option value="openai/gpt-4.1-mini">gpt-4.1-mini</option>
+            </select>
+          </div>
+          <ol class="agent-log" id="agent-log" aria-live="polite"></ol>
+        </div>
+        <div class="nn-grid">
+          <div class="card">
+            <h3 class="block-title">Parameters now</h3>
+            <div id="nn-params"></div>
+          </div>
+          <div class="card">
+            <h3 class="block-title">How it connects</h3>
+            <ul class="steps-list">
+              <li><b>Kitchen →</b> each finished dish on the Order Line is one training example: the item and its real prep seconds.</li>
+              <li><b>Network →</b> predicts first, then updates its weights and biases with one gradient step, so the error shown is honest online error.</li>
+              <li><b>Decision →</b> in shadow mode the fire plan still uses the measured estimators. The network should be promoted only if it beats them on the replay benchmark.</li>
+              <li><b>AI agent →</b> between dishes, the OpenRouter model (or the rule agent) proposes changes to the network's learning rate and biases. The server clamps them, tries them on a copy, and keeps only changes that lower error on held-out dishes. Every change is logged with its reason.</li>
+            </ul>
+          </div>
         </div>
       </section>
 
       <section class="view hidden" id="view-evidence" role="tabpanel" aria-labelledby="tab-evidence">
-        <div class="view-head">
+        <div class="page-head">
           <div>
             <h2>Same shift, five policies</h2>
             <p>Every policy sees the identical tickets, prep durations and courier arrivals. Only the firing decision changes.</p>
@@ -157,16 +200,7 @@
             <p id="brief-text" class="brief-text">Generated from measured metrics.</p>
             <details>
               <summary>Use a model to rewrite it (optional)</summary>
-              <p class="fine">The model may rephrase the numbers, never add one. Any figure not present in the measured facts is rejected and the deterministic brief is shown instead. The key is sent with this one request, kept in memory, never written to disk or logs.</p>
-              <div class="keyrow">
-                <input id="api-key" type="password" placeholder="OpenRouter key" autocomplete="off" spellcheck="false" />
-                <select id="model">
-                  <option value="openai/gpt-4o-mini">gpt-4o-mini</option>
-                  <option value="google/gemini-2.5-flash">gemini-2.5-flash</option>
-                  <option value="anthropic/claude-haiku-4.5">claude-haiku-4.5</option>
-                  <option value="openai/gpt-4.1-mini">gpt-4.1-mini</option>
-                </select>
-              </div>
+              <p class="fine">The model may rephrase the numbers, never add one. Any figure not present in the measured facts is rejected and the deterministic brief is shown instead. Set the OpenRouter key and model once under <b>Neural Net → AI agent</b>; the brief and the coach use the same key. It is sent with each request, kept in memory, never written to disk or logs.</p>
             </details>
           </div>
           <div class="brief coach">
@@ -181,49 +215,49 @@
         </div>
       </section>
 
-    <section class="view hidden" id="view-idea" role="tabpanel" aria-labelledby="tab-idea">
-      <article class="prose">
-        <h2>Not another inventory tracker</h2>
-        <p>Inventory tools, invoice reconciliation and bookkeeping dashboards already exist, and DoorDash ships parts of them. The crowded part of the problem is <em>knowing</em> things. The open part is <em>deciding</em>: at 7:12pm, with three stations backed up and a courier who may be four minutes out, do you start the burger now or hold it?</p>
-        <p>Fireline is a tablet agent for the pass that answers that question per ticket, shows the arithmetic behind each answer, and keeps a measured record of whether the calls were good.</p>
+      <section class="view hidden" id="view-idea" role="tabpanel" aria-labelledby="tab-idea">
+        <article class="prose">
+          <h2>Not another inventory tracker</h2>
+          <p>Inventory tools, invoice reconciliation and bookkeeping dashboards already exist, and DoorDash ships parts of them. The crowded part of the problem is <em>knowing</em> things. The open part is <em>deciding</em>: at 7:12pm, with three stations backed up and a courier who may be four minutes out, do you start the burger now or hold it?</p>
+          <p>Fireline is a tablet agent for the pass that answers that question per ticket, shows the arithmetic behind each answer, and keeps a measured record of whether the calls were good.</p>
 
-        <h3>What it decides</h3>
-        <p>One action per ticket: <strong>fire now</strong> or <strong>fire at t</strong>. Cost is seconds of food sitting plus five times seconds of courier waiting. The five is an assumption, printed on screen, and changing it changes the plan.</p>
+          <h3>What it decides</h3>
+          <p>One action per ticket: <strong>fire now</strong> or <strong>fire at t</strong>. Cost is seconds of food sitting plus five times seconds of courier waiting. The five is an assumption, printed on screen, and changing it changes the plan.</p>
 
-        <h3>What it learns</h3>
-        <ul>
-          <li>Prep time per menu item: a prior from the menu (median and spread), updated online from real station service times.</li>
-          <li>Courier bias: an exponential moving average of “arrived minus promised”, so a late market shifts the firing plan within a few tickets.</li>
-          <li>Queue delay: the live backlog on the critical station is added to the forecast before the cost comparison.</li>
-        </ul>
+          <h3>What it learns</h3>
+          <ul>
+            <li>Prep time per menu item: a prior from the menu (median and spread), updated online from real station service times.</li>
+            <li>Courier bias: an exponential moving average of “arrived minus promised”, so a late market shifts the firing plan within a few tickets.</li>
+            <li>Queue delay: the live backlog on the critical station is added to the forecast before the cost comparison.</li>
+          </ul>
 
-        <h3>Designed for the line, not for a demo</h3>
-        <p>Kitchen staff are wearing gloves and reading the board from three feet away. So: tap targets are 48–64px, a ticket opens with one tap, nothing important is hover-only, the playback controls sit in the bottom bar within reach, body text is 13–16px, focus is visible and trapped inside the drawer, and Escape closes it. No gestures, no long-press, no drag.</p>
+          <h3>Designed for the line, not for a demo</h3>
+          <p>Kitchen staff are wearing gloves and reading the board from three feet away. So: tap targets are 48–64px, a ticket opens with one tap, nothing important is hover-only, the playback controls sit in the bottom bar within reach, body text is 13–16px, focus is visible and trapped inside the drawer, and Escape closes it. No gestures, no long-press, no drag.</p>
 
-        <h3>What it cannot do — say this to judges</h3>
-        <ul>
-          <li>It does not model station changeovers, staff breaks or an item being dropped. Prep times are learned from a shift that is already happening.</li>
-          <li>Cold start is real: with zero observations it believes the menu. The Cold start shift shows exactly how much that costs.</li>
-          <li>Courier ETAs are noisy, and forty percent of tickets can arrive with no courier assigned at all. The agent plans against a distribution, not a fact.</li>
-          <li>Weights are a policy choice, not a discovered truth. The benchmark shows the trade, not a single “correct” answer.</li>
-          <li>No LLM is in the decision path. A model is optional only to rewrite the measured brief, and its output is rejected if it invents a number.</li>
-        </ul>
+          <h3>What it cannot do — say this to judges</h3>
+          <ul>
+            <li>It does not model station changeovers, staff breaks or an item being dropped. Prep times are learned from a shift that is already happening.</li>
+            <li>Cold start is real: with zero observations it believes the menu. The Cold start shift shows exactly how much that costs.</li>
+            <li>Courier ETAs are noisy, and forty percent of tickets can arrive with no courier assigned at all. The agent plans against a distribution, not a fact.</li>
+            <li>Weights are a policy choice, not a discovered truth. The benchmark shows the trade, not a single “correct” answer.</li>
+            <li>No LLM is in the decision path. A model is optional only to rewrite the measured brief, and its output is rejected if it invents a number.</li>
+          </ul>
 
-        <h3>Edge cases in the replay</h3>
-        <ul>
-          <li>Duplicate ticket id: the second ticket is dropped and counted, never cooked twice.</li>
-          <li>86’d item: the ticket is blocked before a station is touched.</li>
-          <li>Promise already in the past: the plan collapses to fire immediately.</li>
-          <li>Empty ticket: blocked, not crashed.</li>
-          <li>Twelve-item party order: the critical path and the backlog decide, not the item count.</li>
-          <li>No courier assigned: the plan uses the promised time plus learned bias with a wider spread.</li>
-          <li>HTML in a ticket note is escaped, never rendered.</li>
-        </ul>
+          <h3>Edge cases in the replay</h3>
+          <ul>
+            <li>Duplicate ticket id: the second ticket is dropped and counted, never cooked twice.</li>
+            <li>86’d item: the ticket is blocked before a station is touched.</li>
+            <li>Promise already in the past: the plan collapses to fire immediately.</li>
+            <li>Empty ticket: blocked, not crashed.</li>
+            <li>Twelve-item party order: the critical path and the backlog decide, not the item count.</li>
+            <li>No courier assigned: the plan uses the promised time plus learned bias with a wider spread.</li>
+            <li>HTML in a ticket note is escaped, never rendered.</li>
+          </ul>
 
-        <h3>Honest limits of the evidence</h3>
-        <p>This is a simulator, not a production POS integration. It is calibrated to be plausible, not to match a specific restaurant. The comparison is paired and seeded, so the <em>difference</em> between policies is meaningful; the absolute minutes are illustrative.</p>
-      </article>
-    </section>
+          <h3>Honest limits of the evidence</h3>
+          <p>This is a simulator, not a production POS integration. It is calibrated to be plausible, not to match a specific restaurant. The comparison is paired and seeded, so the <em>difference</em> between policies is meaningful; the absolute minutes are illustrative.</p>
+        </article>
+      </section>
     </main>
 
     <div class="playbar">

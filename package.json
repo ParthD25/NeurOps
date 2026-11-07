@@ -8,7 +8,8 @@
     "start": "node server.mjs",
     "dev": "node --watch server.mjs",
     "test": "node --test test/*.mjs",
-    "eval": "node src/sim/cli.mjs"
+    "eval": "node src/sim/cli.mjs",
+    "lifecycle": "node src/sim/lifecycle-cli.mjs"
   },
   "engines": {
     "node": ">=20"
