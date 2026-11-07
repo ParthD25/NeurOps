@@ -7,6 +7,7 @@ import { compare, runOne, evalMeta } from "./src/sim/eval.mjs";
 import { getScenario, listScenarios, scenarioSummary } from "./src/sim/scenario.mjs";
 import { menuName } from "./src/sim/menu.mjs";
 import { buildBrief, buildFacts, guardNumbers, llmBrief } from "./src/brief.mjs";
+import { buildCoachBrief, buildCoachFacts, guardCoach, llmCoach } from "./src/coach.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(HERE, "public");
@@ -246,6 +247,50 @@ async function handleApi(req, res, url, options) {
         guard,
         facts,
         note: "Model text contained a figure that is not in the measured facts, so it was rejected.",
+      });
+    }
+    return sendJson(res, 200, { source: "llm", text: llm.text, guard, facts, note: null });
+  }
+
+  if (pathname === "/api/coach" && method === "POST") {
+    const body = await readJson(req);
+    const scenarioId = parseScenarioId(body.scenarioId);
+    const policy = parsePolicy(body.policy);
+    const seed = parseSeed(body.seed);
+    const result = runCached({ scenarioId, policy, seed });
+    const facts = buildCoachFacts({ result });
+    const deterministic = buildCoachBrief(facts);
+    const apiKey = typeof body.apiKey === "string" && body.apiKey.trim()
+      ? body.apiKey.trim()
+      : process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      return sendJson(res, 200, {
+        source: "deterministic",
+        text: deterministic,
+        guard: { ok: true, forbidden: false, unknown: [] },
+        facts,
+        note: "No model key supplied. Analysis is computed from measured facts.",
+      });
+    }
+    const model = typeof body.model === "string" && body.model ? body.model : "openai/gpt-4o-mini";
+    const llm = await llmCoach({ facts, apiKey, model, fetchImpl: options.llmFetch ?? globalThis.fetch });
+    if (!llm.ok) {
+      return sendJson(res, 200, {
+        source: "deterministic",
+        text: deterministic,
+        guard: { ok: true, forbidden: false, unknown: [] },
+        facts,
+        note: `Model unavailable (${llm.error}). Fell back to measured analysis.`,
+      });
+    }
+    const guard = guardCoach(llm.text, facts);
+    if (!guard.ok) {
+      return sendJson(res, 200, {
+        source: "deterministic",
+        text: deterministic,
+        guard,
+        facts,
+        note: "Model advice contained a forbidden action or an unmeasured number, so it was rejected.",
       });
     }
     return sendJson(res, 200, { source: "llm", text: llm.text, guard, facts, note: null });

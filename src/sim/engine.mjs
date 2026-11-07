@@ -1,4 +1,5 @@
 import { STATIONS } from "./menu.mjs";
+import { summarizeWaiters } from "./waiters.mjs";
 
 // One worker per station, FIFO queue, exact completion timestamps. The engine is
 // deliberately dumb: it executes fire decisions and reports what happened. All
@@ -53,6 +54,63 @@ export class Engine {
       };
       this.byId.set(ticket.id, ticket);
       this.tickets.push(ticket);
+    }
+
+    // Floor service is modelled separately from the kitchen. Each table gets a
+    // check-in clock; a waiter can only do one check at a time, so a loaded
+    // section can slip past the ten-minute standard. The kitchen never invents
+    // a check-in, and the UI can also record one by hand.
+    this.tables = new Map();
+    this.waiterBusyUntil = new Map();
+    for (const ticket of this.tickets) {
+      if (ticket.kind !== "table" || ticket.tableNo == null) continue;
+      const known = this.tables.get(ticket.tableNo);
+      if (known) {
+        known.seatedAt = Math.min(known.seatedAt, ticket.arrivalSec);
+        known.courses = Math.max(known.courses, 1);
+        continue;
+      }
+      this.tables.set(ticket.tableNo, {
+        tableNo: ticket.tableNo,
+        section: ticket.waiterSection ?? "A",
+        waiterId: ticket.waiterId ?? null,
+        waiterName: ticket.waiterName ?? null,
+        seats: ticket.partySize ?? 2,
+        seatedAt: ticket.arrivalSec,
+        lastCheckAt: ticket.arrivalSec + 90,
+        checks: [ticket.arrivalSec + 90],
+        courses: 1,
+      });
+    }
+  }
+
+  serviceRound() {
+    const CHECK_EVERY_SEC = 600;
+    const CHECK_SERVICE_SEC = 300;
+    const tables = [...this.tables.values()].sort((a, b) => a.lastCheckAt - b.lastCheckAt);
+    for (const table of tables) {
+      if (this.now < table.seatedAt) continue;
+      const activeUntil = Math.max(table.seatedAt, ...this.tickets
+        .filter((ticket) => ticket.tableNo === table.tableNo)
+        .map((ticket) => ticket.courierEtaSec + 1800));
+      if (this.now > activeUntil + 900) continue;
+      if (this.now - table.lastCheckAt < CHECK_EVERY_SEC) continue;
+      // A waiter firefighting a late course or food stuck at the pass misses the
+      // scheduled check. That is how a ten-minute standard actually slips.
+      const underPressure = this.tickets.some((ticket) => {
+        if (ticket.tableNo !== table.tableNo) return false;
+        if (ticket.status === "stalled") return true;
+        const heldAtPass = ticket.readyAt != null && ticket.handoffAt == null && this.now - ticket.readyAt > 600;
+        const stillCookingLate = ticket.readyAt == null && ticket.fireAt != null && this.now > ticket.courierEtaSec + 300;
+        return heldAtPass || stillCookingLate;
+      });
+      if (underPressure) continue;
+      const busyUntil = this.waiterBusyUntil.get(table.waiterId) ?? 0;
+      if (busyUntil > this.now) continue;
+      table.lastCheckAt = this.now;
+      table.checks.push(this.now);
+      this.waiterBusyUntil.set(table.waiterId, this.now + CHECK_SERVICE_SEC);
+      this.events.push({ t: this.now, type: "check", tableNo: table.tableNo, waiterId: table.waiterId });
     }
   }
 
@@ -218,11 +276,18 @@ export class Engine {
       for (const item of ticket.items) {
         if (item.startedAt == null || item.doneAt != null) continue;
         const limit = Math.max(180, item.prepSec * 3 + 120);
-        if (this.now - item.startedAt > limit) {
+        // A known outage does not need a three-cook-time grace period. Give the
+        // station a minute, then reroute to the backup while the order is alive.
+        const grace = this.stationOutage(item.station, this.now) ? 60 : limit;
+        if (this.now - item.startedAt > grace) {
           if (!item.stalled) {
             item.stalled = true;
             this.events.push({ t: this.now, type: "stalled", ticketId: ticket.id, lineId: item.lineId, station: item.station });
           }
+          // A dead pan does not mean a dead order. If the scenario names a
+          // backup station, remake the dish there with a penalty and keep the
+          // ticket alive. It is only marked done when the new dish actually is.
+          if (this.tryRemake(ticket, item)) continue;
           stalling = true;
         }
       }
@@ -235,6 +300,30 @@ export class Engine {
         ticket.status = "cooking";
       }
     }
+  }
+
+  tryRemake(ticket, item) {
+    if (item.remade) return false;
+    const outage = this.stationOutage(item.station, this.now);
+    if (!outage?.backup || outage.backup === item.station) return false;
+    if (this.stationOutage(outage.backup, this.now)) return false;
+    if (this.isUnavailable(item.itemId)) return false;
+    const station = this.station(item.station);
+    if (station.current?.lineId === item.lineId && station.current?.ticketId === ticket.id) {
+      station.current = null;
+    } else {
+      station.queue = station.queue.filter((entry) => !(entry.ticketId === ticket.id && entry.lineId === item.lineId));
+    }
+    item.station = outage.backup;
+    item.prepSec = Math.round(item.prepSec * (outage.penalty ?? 1.25));
+    item.startedAt = null;
+    item.stalled = false;
+    item.remade = true;
+    ticket.remade = true;
+    ticket.remadeItems = (ticket.remadeItems ?? 0) + 1;
+    ticket.status = "cooking";
+    this.events.push({ t: this.now, type: "remake", ticketId: ticket.id, lineId: item.lineId, from: outage.station, to: outage.backup });
+    return true;
   }
 
   markArrivals(upTo) {
@@ -278,10 +367,17 @@ export class Engine {
     for (const ticket of this.tickets) {
       if (ticket.status !== "ready") continue;
       if (ticket.courierEtaSec == null) continue;
-      const handoffAt = Math.max(ticket.readyAt, ticket.courierEtaSec);
+      const serveDelay = ticket.kind === "table" ? ticket.waiterLagSec ?? 0 : 0;
+      const handoffAt = Math.max(ticket.readyAt, ticket.courierEtaSec + serveDelay);
       if (this.now + EPS < handoffAt) continue;
       ticket.status = "handed_off";
       ticket.handoffAt = handoffAt;
+      // Handoff is food leaving the pass for the table. Delivery is the extra
+      // walk time; the floor map uses it to spot food still sitting at the pass.
+      ticket.deliveredAt = handoffAt + (ticket.kind === "table" ? ticket.waiterLagSec ?? 0 : 0);
+      // Measure the server's own delay, not the kitchen's lateness: wait until
+      // the food is both ready and due, then count what the floor added.
+      ticket.serveLagSec = Math.max(0, handoffAt - Math.max(ticket.readyAt, ticket.courierEtaSec));
       this.courierSamples.push({
         promisedSec: ticket.promisedReadySec,
         actualSec: ticket.courierEtaSec,
@@ -335,6 +431,7 @@ export class Engine {
     this.markArrivals(end);
     this.markReady();
     this.markHandoffs();
+    this.serviceRound();
     this.maybeDecide();
   }
 
@@ -370,7 +467,8 @@ export class Engine {
       handedOff: handed.length,
       blocked: this.tickets.filter((t) => t.status === "blocked").length,
       pending: this.tickets.filter((t) => t.status === "ready").length,
-      stalled: this.tickets.filter((t) => t.stalled).length,
+      stalled: this.tickets.filter((t) => t.status === "stalled").length,
+      remade: this.tickets.reduce((sum, t) => sum + (t.remadeItems ?? 0), 0),
       unfinished: this.tickets.filter((t) => t.status !== "handed_off" && t.status !== "blocked").length,
       onTimePct: handed.length ? Math.round((onTime / handed.length) * 1000) / 10 : 0,
       avgSitSec,
@@ -392,16 +490,28 @@ export class Engine {
       policyId: this.policy.id,
       durationSec: this.scenario.durationSec,
       metrics,
+      waiterStats: summarizeWaiters(this.tickets),
+      tables: [...this.tables.values()].map((table) => ({
+        ...table,
+        checks: table.checks.slice(),
+      })),
       tickets: this.tickets.map((t) => ({
         ...this.ticketPreview(t),
         status: t.status,
         fireAt: t.fireAt,
         readyAt: t.readyAt,
         handoffAt: t.handoffAt,
+        deliveredAt: t.deliveredAt ?? null,
         blockedReason: t.blockedReason,
         stalled: Boolean(t.stalled),
         stalledAt: t.stalledAt ?? null,
         stallReason: t.stallReason ?? null,
+        remade: Boolean(t.remade),
+        remadeItems: t.remadeItems ?? 0,
+        waiterId: t.waiterId ?? null,
+        waiterName: t.waiterName ?? null,
+        waiterSection: t.waiterSection ?? null,
+        serveLagSec: t.serveLagSec ?? null,
         manual: t.manual,
         sitSec: t.handoffAt != null ? Math.max(0, t.courierEtaSec - t.readyAt) : null,
         lateSec: t.handoffAt != null ? Math.max(0, t.readyAt - t.courierEtaSec) : null,

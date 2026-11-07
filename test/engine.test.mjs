@@ -215,6 +215,26 @@ test("a stalled item recovers when the station comes back", () => {
   assert.equal(result.metrics.unfinished, 0);
 });
 
+test("a dead station reroutes the dish to a backup instead of losing the ticket", () => {
+  const engine = new Engine({
+    scenario: makeScenario(
+      [ticket({ id: "A", courierEtaSec: 1600, items: [{ lineId: "L1", itemId: "fries", prepSec: 200, station: "fry" }] })],
+      { stationOutages: [{ station: "fry", fromSec: 0, toSec: null, backup: "grill", penalty: 1.3 }] },
+    ),
+    policy: stubPolicy(0),
+  });
+  engine.markArrivals(0);
+  engine.fire("A");
+  const result = engine.run({ tailSec: 1800 });
+  const ticketResult = result.tickets[0];
+  assert.equal(ticketResult.items[0].station, "grill");
+  assert.equal(ticketResult.remade, true);
+  assert.equal(ticketResult.items[0].doneAt != null, true);
+  assert.equal(ticketResult.status, "handed_off");
+  assert.equal(result.metrics.remade, 1);
+  assert.equal(result.metrics.unfinished, 0);
+});
+
 test("table courses fire in course order and never all at seating", () => {
   const courses = [0, 1, 2].map((course) =>
     ticket({
@@ -243,4 +263,39 @@ test("table courses fire in course order and never all at seating", () => {
   }
   assert.equal(result.tickets[0].kind, "table");
   assert.equal(result.tickets[0].tableNo, 1);
+});
+
+test("table service tracks checks and delivery separately from firing", () => {
+  const courses = ["starters", "mains", "dessert"].map((label, index) =>
+    ticket({
+      id: `T-${index}`,
+      kind: "table",
+      tableNo: 7,
+      partySize: 4,
+      courseIndex: index,
+      courseLabel: label,
+      waiterId: "w1",
+      waiterName: "Maya",
+      waiterSection: "A",
+      waiterLagSec: 45,
+      arrivalSec: index * 300,
+      courierEtaSec: 300 + index * 600,
+      promisedReadySec: 300 + index * 600,
+      items: [{ lineId: `L${index}`, itemId: "burger", prepSec: 100, station: "grill" }],
+    }),
+  );
+  const engine = new Engine({ scenario: makeScenario(courses, { durationSec: 1800 }), policy: stubPolicy(0) });
+  const result = engine.run({ tailSec: 1800 });
+  assert.equal(result.tables.length, 1);
+  const table = result.tables[0];
+  assert.equal(table.tableNo, 7);
+  assert.equal(table.waiterName, "Maya");
+  assert.ok(table.checks.length >= 2, "waiter should complete repeated check rounds");
+  assert.ok(table.checks.every((at) => at >= table.seatedAt + 90));
+  for (const served of result.tickets) {
+    assert.ok(served.deliveredAt > served.handoffAt);
+    assert.equal(served.deliveredAt - served.handoffAt, 45);
+  }
+  const checkEvents = result.events.filter((event) => event.type === "check");
+  assert.equal(checkEvents.length, table.checks.length - 1);
 });

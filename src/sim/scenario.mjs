@@ -8,6 +8,7 @@ import {
 } from "./rng.mjs";
 import { ITEM_WEIGHTS, MENU_BY_ID, PACK_SEC, itemById } from "./menu.mjs";
 import { buildRealScenario } from "./realdata.mjs";
+import { waiterForTable } from "./waiters.mjs";
 
 // A scenario is a frozen shift: every ticket, every prep duration, and every
 // courier arrival is sampled up front. Policies only change *scheduling*, so two
@@ -172,7 +173,7 @@ function dinnerTickets() {
   for (let table = 1; table <= 6; table += 1) {
     const seatedAt = 60 + table * 240 + Math.round(rng() * 120);
     const partySize = 2 + Math.floor(rng() * 4);
-    for (let course = 0; course < 3; course += 1) {
+    const waiter = waiterForTable(table);    for (let course = 0; course < 3; course += 1) {
       const count = course === 1 ? 2 : 1 + Math.floor(rng() * 2);
       const items = [];
       for (let i = 0; i < count; i += 1) {
@@ -196,6 +197,10 @@ function dinnerTickets() {
         customerName: `Table ${table}`,
         channel: "table",
         kind: "table",
+        waiterId: waiter.id,
+        waiterName: waiter.name,
+        waiterSection: waiter.section,
+        waiterLagSec: waiter.paceSec + Math.round(rng() * 40),
         tableNo: table,
         partySize,
         courseIndex: course,
@@ -288,11 +293,11 @@ export const SCENARIOS = [
   {
     id: "station-down",
     title: "Station down",
-    blurb: "The fry station dies at 10:00 and never comes back. Dishes already in it are never marked complete, so the ticket can never be handed off.",
+    blurb: "The fry station dies at 10:00. The agent reroutes its dishes to a backup station with a 30% time penalty, keeping every order alive.",
     seed: 4108,
     durationSec: 2400,
     unavailable: [],
-    stationOutages: [{ station: "fry", fromSec: 600, toSec: null }],
+    stationOutages: [{ station: "fry", fromSec: 600, toSec: null, backup: "grill", penalty: 1.3 }],
     tickets: generateShift({ id: "station-down", count: 14, durationSec: 2400, meanGapSec: 120 }).tickets,
     watch: "never-completed items",
   },

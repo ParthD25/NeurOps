@@ -75,6 +75,18 @@ test("unknown scenarios and policies fail loudly", () => {
   assert.throws(() => runOne({ scenarioId: "rush", policyId: "nope" }), /unknown policy/);
 });
 
+test("dinner service learns each server's pass-to-table lag", () => {
+  const result = runOne({ scenarioId: "dinner-service", policyId: "adaptive", seed: 7 });
+  assert.ok(result.waiterStats.length >= 4, `only ${result.waiterStats.length} servers`);
+  for (const waiter of result.waiterStats) {
+    assert.ok(waiter.courses > 0, `${waiter.name} served no courses`);
+    assert.ok(waiter.avgLagSec >= 0);
+  }
+  for (const ticket of result.tickets.filter((entry) => entry.status === "handed_off")) {
+    assert.ok(ticket.items.every((item) => item.doneAt != null), `${ticket.id} served unfinished food`);
+  }
+});
+
 test("dinner service carries tables, courses and per-dish plans", () => {
   const result = runOne({ scenarioId: "dinner-service", policyId: "adaptive", seed: 7 });
   const tables = result.tickets.filter((ticket) => ticket.kind === "table");

@@ -12,6 +12,7 @@ const state = {
   tab: "board",
   loading: false,
   lastRendered: -1,
+  checked: {},
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -33,6 +34,7 @@ function minutesLabel(seconds) {
 
 function statusAt(ticket, t) {
   if (ticket.status === "blocked") return "blocked";
+  if (ticket.stalledAt != null && t >= ticket.stalledAt && (ticket.handoffAt == null || t < ticket.handoffAt)) return "stalled";
   if (t < ticket.arrivalSec) return "scheduled";
   if (ticket.fireAt == null || t < ticket.fireAt) return "waiting";
   if (ticket.readyAt == null || t < ticket.readyAt) return "cooking";
@@ -128,6 +130,11 @@ function bindEvents() {
     if (card) openDrawer(card.dataset.id);
   });
 
+  $("#floor-map").addEventListener("click", (event) => {
+    const tile = event.target.closest(".table-tile");
+    if (tile) openTable(Number(tile.dataset.table));
+  });
+
   $("#drawer-close").addEventListener("click", closeDrawer);
   $("#scrim").addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (event) => {
@@ -154,6 +161,7 @@ function bindEvents() {
   });
 
   $("#brief-btn").addEventListener("click", writeBrief);
+  $("#coach-btn").addEventListener("click", writeCoach);
 
   $("#compare-table").addEventListener("click", (event) => {
     const button = event.target.closest("button[data-policy]");
@@ -169,9 +177,10 @@ function switchView(view) {
   $$(".tabs button[data-view]").forEach((button) => {
     button.setAttribute("aria-selected", String(button.dataset.view === view));
   });
-  for (const name of ["board", "plan", "evidence", "idea"]) {
+  for (const name of ["board", "floor", "plan", "evidence", "idea"]) {
     $(`#view-${name}`).classList.toggle("hidden", name !== view);
   }
+  if (view === "floor") renderFloor();
   if (view === "plan") renderPlan();
 }
 
@@ -190,6 +199,7 @@ async function run() {
     state.horizon = Math.max(result.durationSec, ...result.events.map((event) => event.t)) + 120;
     state.playing = true;
     state.lastRendered = -1;
+    state.checked = {};
     updatePlayLabel();
     renderAll();
     setStatus(
@@ -206,6 +216,7 @@ async function run() {
 function renderAll() {
   renderBoard(true);
   renderEvidence();
+  if (state.tab === "floor") renderFloor();
   if (state.tab === "plan") renderPlan();
 }
 
@@ -216,14 +227,33 @@ function renderBoard(force = false) {
   // keeps the board stable under a gloved finger.
   if (!force && Math.abs(state.clock - state.lastRendered) < 1) return;
   state.lastRendered = state.clock;
+  renderExpo();
   renderMetrics();
   renderLanes();
   renderTickets();
+  if (state.tab === "floor") renderFloor();
   if (state.tab === "plan") renderPlan();
   const scrub = $("#scrub");
   scrub.max = String(Math.round(state.horizon));
   if (document.activeElement !== scrub) scrub.value = String(Math.round(state.clock));
   $("#clock").textContent = `${clockLabel(state.clock)} / ${clockLabel(state.horizon)}`;
+}
+
+function renderExpo() {
+  const tickets = state.result.tickets;
+  const cooking = tickets.filter((ticket) => statusAt(ticket, state.clock) === "cooking").length;
+  const ready = tickets.filter((ticket) => statusAt(ticket, state.clock) === "ready").length;
+  const stalled = tickets.filter((ticket) => statusAt(ticket, state.clock) === "stalled").length;
+  const waiting = tickets.filter((ticket) => statusAt(ticket, state.clock) === "waiting").length;
+  $("#expo-bar").innerHTML = `
+    <div class="expo-title"><span class="live"></span> EXPO <b>${clockLabel(state.clock)}</b></div>
+    <div class="expo-counts">
+      <span class="expo-chip waiting">${waiting} waiting</span>
+      <span class="expo-chip cooking">${cooking} cooking</span>
+      <span class="expo-chip ready">${ready} at pass</span>
+      <span class="expo-chip ${stalled ? "bad" : ""}">${stalled} stalled</span>
+    </div>
+    <div class="expo-note">tap a ticket · nothing is bumped automatically</div>`;
 }
 
 function renderMetrics() {
@@ -273,7 +303,7 @@ function renderLanes() {
 function renderTickets() {
   const t = state.clock;
   const decorated = state.result.tickets.map((ticket) => ({ ticket, status: statusAt(ticket, t) }));
-  const order = { cooking: 0, ready: 1, waiting: 2, blocked: 3, done: 4, scheduled: 5 };
+  const order = { cooking: 0, stalled: 1, ready: 2, waiting: 3, blocked: 4, done: 5, scheduled: 6 };
   decorated.sort((a, b) => {
     const byStatus = (order[a.status] ?? 9) - (order[b.status] ?? 9);
     if (byStatus !== 0) return byStatus;
@@ -292,7 +322,9 @@ function renderTickets() {
       const plan = ticket.plan;
       const urgent = status === "waiting" && plan?.fireAt != null && plan.fireAt - t < 60;
       const items = ticket.items.map((item) => esc(item.name ?? item.itemId)).join(" · ");
-      const chan = ticket.kind === "table" ? `table ${ticket.tableNo} · ${ticket.courseLabel}` : ticket.channel;
+      const chan = ticket.kind === "table" ? `table ${ticket.tableNo} · ${ticket.courseLabel}${ticket.waiterName ? ` · ${ticket.waiterName}` : ""}` : ticket.channel;
+      const age = status === "waiting" ? t - ticket.arrivalSec : status === "cooking" ? t - (ticket.fireAt ?? t) : 0;
+      const ageClass = age > 420 ? "age-late" : age > 180 ? "age-warn" : "age-fresh";
       let eta = "";
       if (status === "waiting") eta = plan?.fireAt != null ? `fire in ${minutesLabel(plan.fireAt - t)}` : "no plan";
       else if (status === "cooking") {
@@ -307,9 +339,11 @@ function renderTickets() {
       else if (status === "ready") eta = ticket.kind === "table" ? "waiting for service" : "waiting for courier";
       else if (status === "done") eta = ticket.sitSec > 0 ? `sat ${minutesLabel(ticket.sitSec)}` : `late ${minutesLabel(ticket.lateSec)}`;
       else if (status === "blocked") eta = ticket.blockedReason ?? "blocked";
+      else if (status === "stalled") eta = ticket.stallReason ?? "item never completed";
       const label = status === "done" ? (ticket.kind === "table" ? "served" : "handed off") : status;
-      return `<button type="button" class="ticket ${status}${urgent ? " urgent" : ""}" data-id="${esc(ticket.id)}">
-        <div class="thead"><span class="id">${esc(ticket.id)}</span><span class="chan">${esc(chan)}</span></div>
+      return `<button type="button" class="ticket ${status} ${ageClass}${urgent ? " urgent" : ""}" data-id="${esc(ticket.id)}">
+        <div class="thead"><span class="id">${esc(ticket.id)}</span><span class="age ${ageClass}">${age > 0 ? minutesLabel(age) : "—"}</span></div>
+        <div class="chan">${esc(chan)}</div>
         <div class="cust">${esc(ticket.customerName)}</div>
         <div class="items">${items || "no items"}</div>
         <div class="trow"><span class="pill ${status}">${esc(label)}</span><span class="time">${esc(eta)}</span></div>
@@ -348,6 +382,243 @@ function renderEvidence() {
       </div>`,
     )
     .join("");
+}
+
+function floorTables() {
+  if (state.result?.tables?.length) return state.result.tables;
+  const map = new Map();
+  for (const ticket of state.result?.tickets ?? []) {
+    if (ticket.kind !== "table" || ticket.tableNo == null) continue;
+    if (!map.has(ticket.tableNo)) {
+      map.set(ticket.tableNo, {
+        tableNo: ticket.tableNo,
+        section: ticket.waiterSection ?? "A",
+        waiterName: ticket.waiterName ?? "unassigned",
+        waiterId: ticket.waiterId ?? null,
+        seats: ticket.partySize ?? 2,
+        seatedAt: ticket.arrivalSec,
+        checks: [ticket.arrivalSec + 90],
+      });
+    }
+  }
+  return [...map.values()].sort((a, b) => a.tableNo - b.tableNo);
+}
+
+function deliveredAt(course) {
+  if (course.deliveredAt != null) return course.deliveredAt;
+  if (course.handoffAt != null) return course.handoffAt + (course.waiterLagSec ?? 0);
+  return null;
+}
+
+function floorState() {
+  const t = state.clock;
+  return floorTables()
+    .map((table) => {
+      const courses = state.result.tickets
+        .filter((ticket) => ticket.kind === "table" && ticket.tableNo === table.tableNo)
+        .sort((a, b) => a.courseIndex - b.courseIndex);
+      const checks = [...(table.checks ?? [table.seatedAt + 90]), state.checked[table.tableNo]]
+        .filter((at) => at != null && at <= t);
+      const lastCheckAt = Math.max(table.seatedAt + 90, ...checks);
+      const checkAge = Math.max(0, t - lastCheckAt);
+      const waiting = [];
+      for (const course of courses) {
+        if (course.readyAt == null || t < course.readyAt) continue;
+        const atTable = deliveredAt(course);
+        if (atTable != null && t >= atTable) continue;
+        waiting.push({ course, heldSec: Math.max(0, t - course.readyAt) });
+      }
+      const longest = waiting.slice().sort((a, b) => b.heldSec - a.heldSec)[0] ?? null;
+      const current =
+        courses.find((course) => {
+          const atTable = deliveredAt(course);
+          return atTable == null || t < atTable;
+        }) ?? courses[courses.length - 1];
+      const seated = t >= table.seatedAt;
+      const checkDue = seated && t >= table.seatedAt + 120 && checkAge >= 480;
+      const checkOverdue = seated && t >= table.seatedAt + 120 && checkAge > 600;
+      const foodOverdue = longest != null && longest.heldSec > 900;
+      const foodDue = longest != null && longest.heldSec >= 600;
+      const deliveredCount = courses.filter((course) => {
+        const atTable = deliveredAt(course);
+        return atTable != null && t >= atTable;
+      }).length;
+      const stateName = !seated
+        ? "upcoming"
+        : foodOverdue || checkOverdue
+          ? "alert"
+          : foodDue || checkDue
+            ? "warn"
+            : deliveredCount === courses.length
+              ? "done"
+              : "ok";
+      return {
+        ...table,
+        courses,
+        lastCheckAt,
+        checkAge,
+        checkDue,
+        checkOverdue,
+        waiting,
+        longest,
+        foodOverdue,
+        foodDue,
+        current,
+        deliveredCount,
+        state: stateName,
+        seated,
+      };
+    })
+    .sort((a, b) => a.tableNo - b.tableNo);
+}
+
+function renderFloor() {
+  if (!state.result) return;
+  const t = state.clock;
+  const tables = floorState();
+  const active = tables.filter((table) => table.seated && table.state !== "done");
+  const checkAlerts = tables.filter((table) => table.checkOverdue);
+  const foodAlerts = tables.filter((table) => table.foodOverdue);
+  const dueSoon = tables.filter((table) => table.checkDue && !table.checkOverdue);
+  const avgCheck = active.length
+    ? Math.round(active.reduce((sum, table) => sum + table.checkAge, 0) / active.length)
+    : 0;
+  const risk = checkAlerts.length + foodAlerts.length > 2 ? "High" : checkAlerts.length + foodAlerts.length ? "Watch" : "Steady";
+
+  $("#service-metrics").innerHTML = `
+    <div class="service-metric ${checkAlerts.length ? "bad" : ""}"><span>Tables to check</span><b>${checkAlerts.length}</b><small>10-minute standard</small></div>
+    <div class="service-metric ${foodAlerts.length ? "bad" : ""}"><span>Food over 15m</span><b>${foodAlerts.length}</b><small>still at the pass</small></div>
+    <div class="service-metric"><span>Avg check gap</span><b>${minutesLabel(avgCheck)}</b><small>on ${active.length} active tables</small></div>
+    <div class="service-metric ${risk === "High" ? "bad" : ""}"><span>Service risk</span><b>${risk}</b><small>${clockLabel(t)} · ${dueSoon.length} due soon</small></div>`;
+
+  const calls = [];
+  for (const table of checkAlerts) {
+    calls.push({
+      severity: 2,
+      who: table.waiterName,
+      table: table.tableNo,
+      text: `no check in ${minutesLabel(table.checkAge)}`,
+      action: "check now",
+      detail: "Refill drinks, clear plates, ask about the first bite.",
+    });
+  }
+  for (const table of foodAlerts) {
+    calls.push({
+      severity: 3,
+      who: table.waiterName,
+      table: table.tableNo,
+      text: `${table.longest.course.courseLabel} waiting ${minutesLabel(table.longest.heldSec)} at the pass`,
+      action: "run the food",
+      detail: "Apologize for the wait, give an honest ETA, and tell the pass.",
+    });
+  }
+  for (const table of dueSoon) {
+    calls.push({
+      severity: 1,
+      who: table.waiterName,
+      table: table.tableNo,
+      text: `check due (${minutesLabel(table.checkAge)} since last)`,
+      action: "check next",
+      detail: "A quick stop now keeps the table inside ten minutes.",
+    });
+  }
+  calls.sort((a, b) => b.severity - a.severity || b.table - a.table);
+  $("#service-calls").innerHTML = calls.length
+    ? calls
+        .slice(0, 8)
+        .map(
+          (call) => `<div class="waiter-call sev-${call.severity}">
+            <span class="who">Tell ${esc(call.who)}</span>
+            <span class="what"><b>Table ${call.table}</b> · ${esc(call.text)}</span>
+            <span class="act">${esc(call.action)}</span>
+            <span class="detail">${esc(call.detail)}</span>
+          </div>`,
+        )
+        .join("")
+    : `<p class="idle">Every seated table has been checked within ten minutes, and no dish has sat at the pass for fifteen.</p>`;
+
+  const sections = new Map();
+  for (const table of tables) {
+    if (!sections.has(table.section)) sections.set(table.section, []);
+    sections.get(table.section).push(table);
+  }
+  $("#floor-map").innerHTML = [...sections.entries()]
+    .sort(([a], [b]) => String(a).localeCompare(String(b)))
+    .map(([section, list]) => {
+      const server = list.find((table) => table.waiterName)?.waiterName ?? "unassigned";
+      return `<section class="floor-section">
+        <header><b>Section ${esc(section)}</b><span>${esc(server)} · ${list.length} tables</span></header>
+        <div class="floor-tables">
+          ${list
+            .map((table) => {
+              const current = table.current;
+              const courseText = !table.seated
+                ? `seated ${clockLabel(table.seatedAt)}`
+                : current && table.deliveredCount < table.courses.length
+                  ? `${current.courseLabel} · ${statusAt(current, t)}`
+                  : "all courses delivered";
+              const checkText = !table.seated ? "waiting" : `check ${minutesLabel(table.checkAge)}`;
+              const foodText = table.longest
+                ? `food ${minutesLabel(table.longest.heldSec)}`
+                : table.deliveredCount
+                  ? `${table.deliveredCount}/${table.courses.length} served`
+                  : "food at pass";
+              return `<button type="button" class="table-tile state-${table.state}" data-table="${table.tableNo}" aria-label="Table ${table.tableNo}, ${esc(courseText)}, ${esc(checkText)}">
+                <span class="table-top"><b>${table.tableNo}</b><span>${table.seats} seats</span></span>
+                <span class="table-who">${esc(table.waiterName ?? "unassigned")} · ${esc(table.section)}</span>
+                <span class="table-course">${esc(courseText)}</span>
+                <span class="table-timers"><span class="chip ${table.checkOverdue ? "bad" : table.checkDue ? "warn" : ""}">${esc(checkText)}</span><span class="chip ${table.foodOverdue ? "bad" : table.foodDue ? "warn" : ""}">${esc(foodText)}</span></span>
+              </button>`;
+            })
+            .join("")}
+        </div>
+      </section>`;
+    })
+    .join("");
+}
+
+function openTable(tableNo) {
+  const table = floorState().find((entry) => entry.tableNo === tableNo);
+  if (!table) return;
+  state.selected = null;
+  state.lastFocus = document.activeElement;
+  const courseRows = table.courses
+    .map((course) => {
+      const atTable = deliveredAt(course);
+      const served = atTable != null && state.clock >= atTable;
+      const late = served && atTable > course.courierEtaSec ? ` · ${minutesLabel(atTable - course.courierEtaSec)} late` : "";
+      return `<div class="course-row"><b>${esc(course.courseLabel)}</b><span>${esc(course.items.map((item) => item.name ?? item.itemId).join(" · "))}</span><em>${served ? `served ${clockLabel(atTable)}${late}` : statusAt(course, state.clock)}</em></div>`;
+    })
+    .join("");
+  const alert = table.foodOverdue
+    ? `Food has been at the pass for ${minutesLabel(table.longest.heldSec)}. Apologize, give a real ETA, and walk it out.`
+    : table.checkOverdue
+      ? `No check for ${minutesLabel(table.checkAge)}. Refill drinks, clear plates, ask about the food.`
+      : `Checked ${minutesLabel(table.checkAge)} ago. Next check due in ${minutesLabel(Math.max(0, 600 - table.checkAge))}.`;
+  $("#drawer-body").innerHTML = `
+    <h3 id="drawer-title">Table ${table.tableNo} · section ${esc(table.section)}</h3>
+    <div class="sub">${esc(table.waiterName ?? "unassigned")} · party of ${table.seats} · seated ${clockLabel(table.seatedAt)} · ${table.courses.length} courses</div>
+    <p class="service-callout state-${table.state}">${esc(alert)}</p>
+    <h4>Courses</h4>
+    <div class="course-list">${courseRows}</div>
+    <h4>Service timers</h4>
+    <dl class="kv">
+      <dt>Last check</dt><dd>${clockLabel(table.lastCheckAt)} · ${minutesLabel(table.checkAge)} ago</dd>
+      <dt>Check standard</dt><dd>every 10 minutes</dd>
+      <dt>Food at pass</dt><dd>${table.longest ? `${minutesLabel(table.longest.heldSec)} · ${esc(table.longest.course.courseLabel)}` : "none waiting"}</dd>
+      <dt>Food standard</dt><dd>delivered within 15 minutes</dd>
+    </dl>
+    <button type="button" class="primary-action" id="mark-check">Mark table checked now</button>
+    <p class="sub">Recorded on this device at ${clockLabel(state.clock)}. It does not complete a course or close the table.</p>`;
+  $("#drawer").classList.remove("hidden");
+  $("#scrim").classList.remove("hidden");
+  document.body.classList.add("drawer-open");
+  $("#drawer-close").focus();
+  $("#mark-check").addEventListener("click", () => {
+    state.checked[table.tableNo] = state.clock;
+    renderFloor();
+    openTable(table.tableNo);
+  });
 }
 
 function renderPlan() {
@@ -406,10 +677,16 @@ function renderPlan() {
           );
         })
         .join("");
-      return `<article class="table-card"><header><b>Table ${group.tableNo}</b><span>party of ${group.party} · seated ${clockLabel(group.seated)}</span></header>${body}</article>`;
+      const server = courses.find((course) => course.waiterName)?.waiterName;
+      return `<article class="table-card"><header><b>Table ${group.tableNo}</b><span>${server ? `${esc(server)} · ` : ""}party of ${group.party} · seated ${clockLabel(group.seated)}</span></header>${body}</article>`;
     })
     .join("");
   $("#tables").innerHTML = cards || `<p class="idle">No tables in this shift.</p>`;
+  $("#floor").innerHTML = (state.result.waiterStats ?? [])
+    .map(
+      (waiter) => `<div class="floor-row"><b>${esc(waiter.name)}</b><span>${waiter.courses} courses · ${waiter.tables} tables</span><span class="lag ${waiter.avgLagSec > 60 ? "bad" : ""}">+${waiter.avgLagSec}s</span></div>`,
+    )
+    .join("") || `<p class="idle">No servers assigned in this shift.</p>`;
 }
 
 function openDrawer(ticketId) {
@@ -453,6 +730,7 @@ function openDrawer(ticketId) {
       ticket.kind === "table" ? "serve" : "promise"
     } ${clockLabel(ticket.promisedReadySec)} · status ${esc(status)}${ticket.manual ? " · manual" : ""}</div>
     ${ticket.blockedReason ? `<p class="error">${esc(ticket.blockedReason)}</p>` : ""}
+    ${ticket.stalled ? `<p class="error">${esc(ticket.stallReason ?? "Item stalled")} — the dish is still in progress, so this ticket is not counted as served.${ticket.remade ? " A backup-station remake is on the ticket." : ""}</p>` : ""}
 
     <h4>Items</h4>
     <div class="items-list">${items || "<span class='sub'>none</span>"}</div>
@@ -465,6 +743,7 @@ function openDrawer(ticketId) {
       <dt>Arrived</dt><dd>${clockLabel(ticket.arrivalSec)}</dd>
       <dt>Fired</dt><dd>${ticket.fireAt != null ? clockLabel(ticket.fireAt) : "—"}</dd>
       <dt>Ready</dt><dd>${ticket.readyAt != null ? clockLabel(ticket.readyAt) : "—"}</dd>
+      ${ticket.waiterName ? `<dt>Server</dt><dd>${esc(ticket.waiterName)}${ticket.serveLagSec != null ? ` · +${Math.round(ticket.serveLagSec)}s` : ""}</dd>` : ""}
       <dt>${ticket.kind === "table" ? "Serve target" : "Courier arrival"}</dt><dd>${ticket.courierEtaSec != null ? clockLabel(ticket.courierEtaSec) : "never"}</dd>
       <dt>${ticket.kind === "table" ? "Served" : "Handed off"}</dt><dd>${ticket.handoffAt != null ? clockLabel(ticket.handoffAt) : "—"}</dd>
       <dt>${ticket.kind === "table" ? "Held at pass" : "Sat"}</dt><dd>${ticket.sitSec != null ? `${Math.round(ticket.sitSec)}s` : "—"}</dd>
@@ -509,6 +788,28 @@ function closeDrawer() {
   document.body.classList.remove("drawer-open");
   if (state.lastFocus instanceof HTMLElement) state.lastFocus.focus();
   state.lastFocus = null;
+}
+
+async function writeCoach() {
+  const button = $("#coach-btn");
+  button.disabled = true;
+  button.textContent = "Analyzing…";
+  try {
+    const payload = await api("/api/coach", {
+      scenarioId: state.scenarioId,
+      policy: state.policy,
+      seed: state.seed,
+      apiKey: $("#api-key")?.value || undefined,
+      model: $("#model")?.value ?? "openai/gpt-4o-mini",
+    });
+    $("#coach-text").textContent = payload.text;
+    $("#coach-source").textContent = `${payload.source === "llm" ? "model analysis" : "measured analysis"}${payload.note ? ` · ${payload.note}` : ""}`;
+  } catch (error) {
+    $("#coach-text").textContent = `Analysis failed: ${error.message}`;
+  } finally {
+    button.disabled = false;
+    button.textContent = "Analyze shift";
+  }
 }
 
 async function writeBrief() {

@@ -32,6 +32,7 @@
 
   <nav class="tabs" role="tablist" aria-label="Views">
     <button role="tab" aria-selected="true" data-view="board" id="tab-board">Pass board</button>
+    <button role="tab" aria-selected="false" data-view="floor" id="tab-floor">Floor</button>
     <button role="tab" aria-selected="false" data-view="plan" id="tab-plan">Fire plan</button>
     <button role="tab" aria-selected="false" data-view="evidence" id="tab-evidence">Evidence</button>
     <button role="tab" aria-selected="false" data-view="idea" id="tab-idea">The idea</button>
@@ -40,6 +41,7 @@
 
   <main>
     <section class="view" id="view-board" role="tabpanel" aria-labelledby="tab-board">
+      <div class="expo-bar" id="expo-bar"></div>
       <div class="metrics" id="metrics"></div>
       <div class="board">
         <div class="lanes" id="lanes"></div>
@@ -57,6 +59,16 @@
       </div>
     </section>
 
+    <section class="view hidden" id="view-floor" role="tabpanel" aria-labelledby="tab-floor">
+      <div class="evidence-head">
+        <h2>The floor, live</h2>
+        <p>Ten-minute check standard, fifteen-minute food standard. A table turns amber when a check is due and red when it is overdue; a dish turns red when it has sat at the pass too long. Nothing is marked checked automatically.</p>
+      </div>
+      <div class="service-metrics" id="service-metrics"></div>
+      <div class="service-calls" id="service-calls"></div>
+      <div class="floor-map" id="floor-map"></div>
+    </section>
+
     <section class="view hidden" id="view-plan" role="tabpanel" aria-labelledby="tab-plan">
       <div class="evidence-head">
         <h2>Every dish, every table, next 15 minutes</h2>
@@ -70,6 +82,8 @@
         <div class="plan-panel">
           <h3>Tables</h3>
           <div id="tables"></div>
+          <h3 class="subhead">Floor / servers</h3>
+          <div id="floor"></div>
         </div>
       </div>
     </section>
@@ -107,6 +121,15 @@
             </select>
           </div>
         </details>
+      </div>
+      <div class="brief coach">
+        <div class="brief-head">
+          <h2>Floor coach</h2>
+          <button type="button" id="coach-btn" class="ghost">Analyze shift</button>
+        </div>
+        <p class="fine">Reads per-server pass lag, outage remakes, online holding time and at-risk tickets. The model only phrases the analysis; it cannot change the schedule, complete a ticket or delete an order.</p>
+        <p id="coach-text" class="brief-text">No analysis yet.</p>
+        <p class="source" id="coach-source"></p>
       </div>
     </section>
 
