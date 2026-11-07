@@ -177,11 +177,15 @@ function switchView(view) {
   $$(".tabs button[data-view]").forEach((button) => {
     button.setAttribute("aria-selected", String(button.dataset.view === view));
   });
-  for (const name of ["board", "floor", "plan", "evidence", "idea"]) {
+  for (const name of ["board", "floor", "plan", "model", "evidence", "idea"]) {
     $(`#view-${name}`).classList.toggle("hidden", name !== view);
   }
   if (view === "floor") renderFloor();
   if (view === "plan") renderPlan();
+  if (view === "model") {
+    renderModelReadouts();
+    drawModel(performance.now());
+  }
 }
 
 async function run() {
@@ -195,6 +199,7 @@ async function run() {
     ]);
     state.result = result;
     state.comparison = comparison;
+    state.training = computeTraining(result);
     state.clock = 0;
     state.horizon = Math.max(result.durationSec, ...result.events.map((event) => event.t)) + 120;
     state.playing = true;
@@ -233,6 +238,7 @@ function renderBoard(force = false) {
   renderTickets();
   if (state.tab === "floor") renderFloor();
   if (state.tab === "plan") renderPlan();
+  if (state.tab === "model") renderModelReadouts();
   const scrub = $("#scrub");
   scrub.max = String(Math.round(state.horizon));
   if (document.activeElement !== scrub) scrub.value = String(Math.round(state.clock));
@@ -253,7 +259,7 @@ function renderExpo() {
       <span class="expo-chip ready">${ready} at pass</span>
       <span class="expo-chip ${stalled ? "bad" : ""}">${stalled} stalled</span>
     </div>
-    <div class="expo-note">tap a ticket · nothing is bumped automatically</div>`;
+    <div class="expo-note">tap an order to see why · nothing is bumped automatically</div>`;
 }
 
 function renderMetrics() {
@@ -342,7 +348,7 @@ function renderTickets() {
       else if (status === "stalled") eta = ticket.stallReason ?? "item never completed";
       const label = status === "done" ? (ticket.kind === "table" ? "served" : "handed off") : status;
       return `<button type="button" class="ticket ${status} ${ageClass}${urgent ? " urgent" : ""}" data-id="${esc(ticket.id)}">
-        <div class="thead"><span class="id">${esc(ticket.id)}</span><span class="age ${ageClass}">${age > 0 ? minutesLabel(age) : "—"}</span></div>
+        <div class="thead"><span class="id">${esc(ticket.id)}</span>${age > 0 ? `<span class="age ${ageClass}">${minutesLabel(age)}</span>` : ""}</div>
         <div class="chan">${esc(chan)}</div>
         <div class="cust">${esc(ticket.customerName)}</div>
         <div class="items">${items || "no items"}</div>
@@ -564,7 +570,7 @@ function renderFloor() {
                   ? `${table.deliveredCount}/${table.courses.length} served`
                   : "food at pass";
               return `<button type="button" class="table-tile state-${table.state}" data-table="${table.tableNo}" aria-label="Table ${table.tableNo}, ${esc(courseText)}, ${esc(checkText)}">
-                <span class="table-top"><b>${table.tableNo}</b><span>${table.seats} seats</span></span>
+                ${tableShape(table)}
                 <span class="table-who">${esc(table.waiterName ?? "unassigned")} · ${esc(table.section)}</span>
                 <span class="table-course">${esc(courseText)}</span>
                 <span class="table-timers"><span class="chip ${table.checkOverdue ? "bad" : table.checkDue ? "warn" : ""}">${esc(checkText)}</span><span class="chip ${table.foodOverdue ? "bad" : table.foodDue ? "warn" : ""}">${esc(foodText)}</span></span>
@@ -575,6 +581,31 @@ function renderFloor() {
       </section>`;
     })
     .join("");
+}
+
+// Top-down table drawing for the floor plan: round tops for two to four
+// guests, a long rectangle with chairs on both sides for bigger parties.
+function tableShape(table) {
+  const seats = Math.max(1, Math.min(10, Number(table.seats) || 2));
+  const rect = seats >= 5;
+  const chairs = [];
+  if (rect) {
+    const top = Math.ceil(seats / 2);
+    const bottom = seats - top;
+    const place = (count, y) => {
+      for (let i = 0; i < count; i += 1) {
+        const x = ((i + 1) * 100) / (count + 1) - 50;
+        chairs.push(`<i class="chair" style="--x:${x.toFixed(1)}px;--y:${y}px"></i>`);
+      }
+    };
+    place(top, -40);
+    place(bottom, 40);
+  } else {
+    for (let i = 0; i < seats; i += 1) {
+      chairs.push(`<i class="chair" style="--a:${((360 / seats) * i).toFixed(1)}deg"></i>`);
+    }
+  }
+  return `<span class="tbl${rect ? " rect" : ""}" aria-hidden="true">${chairs.join("")}<span class="tbl-top"><b>${table.tableNo}</b><small>${seats} seats</small></span></span>`;
 }
 
 function openTable(tableNo) {
@@ -844,6 +875,363 @@ function updatePlayLabel() {
   $("#play").textContent = state.result && state.playing ? "Pause" : "Play";
 }
 
+// ---------- Model view: the estimators drawn as a training run ----------
+//
+// Each finished dish is one observation. Its "error" is the prep time the
+// agent assumed when it decided to fire the dish minus the time it really took,
+// so the trace only uses numbers the plan actually carried.
+
+const STATIONS = [
+  { id: "grill", label: "GRILL" },
+  { id: "fry", label: "FRY" },
+  { id: "cold", label: "COLD" },
+];
+const PULSE_SEC = 45;
+const reduceMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+
+function computeTraining(result) {
+  const obs = [];
+  const items = new Map();
+  const courier = [];
+  for (const ticket of result.tickets ?? []) {
+    const plan = ticket.plan;
+    for (const entry of plan?.items ?? []) {
+      const item = ticket.items.find((candidate) => candidate.lineId === entry.lineId);
+      if (!item || item.doneAt == null || !Number.isFinite(entry.prepMeanSec) || !Number.isFinite(item.prepSec)) continue;
+      obs.push({
+        t: item.doneAt,
+        err: entry.prepMeanSec - item.prepSec,
+        itemId: item.itemId,
+        station: item.station,
+      });
+      if (!items.has(item.itemId)) items.set(item.itemId, { itemId: item.itemId, name: item.name ?? item.itemId, station: item.station });
+    }
+    if (plan && !plan.courierKnown && ticket.courierEtaSec != null && Number.isFinite(plan.expectedCourierAt)) {
+      courier.push({
+        t: ticket.courierEtaSec,
+        err: plan.expectedCourierAt - ticket.courierEtaSec,
+        biasSec: plan.courierMeanSec - ticket.promisedReadySec,
+      });
+    }
+  }
+  obs.sort((a, b) => a.t - b.t);
+  courier.sort((a, b) => a.t - b.t);
+  const window = 10;
+  let sum = 0;
+  obs.forEach((entry, index) => {
+    sum += Math.abs(entry.err);
+    if (index >= window) sum -= Math.abs(obs[index - window].err);
+    entry.loss = sum / Math.min(window, index + 1);
+  });
+  const order = STATIONS.map((station) => station.id);
+  const itemList = [...items.values()]
+    .sort((a, b) => order.indexOf(a.station) - order.indexOf(b.station) || a.name.localeCompare(b.name))
+    .slice(0, 10);
+  const maxLoss = Math.max(60, ...obs.map((entry) => entry.loss)) * 1.15;
+  return { obs, courier, items: itemList, maxLoss };
+}
+
+function trainingAt(t) {
+  const training = state.training;
+  if (!training) return null;
+  let seen = 0;
+  while (seen < training.obs.length && training.obs[seen].t <= t) seen += 1;
+  const current = seen ? training.obs[seen - 1].loss : null;
+  const first = training.obs.length ? training.obs[Math.min(9, training.obs.length - 1)].loss : null;
+  const courierSeen = training.courier.filter((entry) => entry.t <= t);
+  return { seen, current, first, courier: courierSeen[courierSeen.length - 1] ?? null };
+}
+
+function renderModelReadouts() {
+  const box = $("#scope-readouts");
+  if (!box || !state.training) return;
+  const now = trainingAt(state.clock);
+  const total = state.training.obs.length;
+  const change = now.current != null && now.first ? Math.round(((now.current - now.first) / now.first) * 100) : null;
+  const bias = now.courier ? Math.round(now.courier.biasSec) : null;
+  box.innerHTML = `
+    <span>step<b>${now.seen}/${total}</b></span>
+    <span>loss<b>${now.current != null ? `${Math.round(now.current)}s` : "—"}</b></span>
+    <span>vs first ten<b>${change != null && now.seen > 10 ? `${change > 0 ? "+" : ""}${change}%` : "—"}</b></span>
+    <span>courier bias<b>${bias != null ? `${bias >= 0 ? "+" : ""}${bias}s` : "no samples"}</b></span>`;
+}
+
+function fitCanvas(canvas) {
+  const ratio = Math.min(2, window.devicePixelRatio || 1);
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  if (!width || !height) return null;
+  if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  return { ctx, width, height };
+}
+
+function graticule(ctx, width, height, divisionsX, divisionsY, inset) {
+  const cx = width / 2;
+  const cy = height / 2;
+  const w = width - inset * 2;
+  const h = height - inset * 2;
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= divisionsX; i += 1) {
+    const x = inset + (w / divisionsX) * i;
+    ctx.globalAlpha = Math.max(0.12, 1 - Math.abs(x - cx) / (width * 0.62));
+    ctx.strokeStyle = "#0d2216";
+    ctx.beginPath();
+    ctx.moveTo(x, inset);
+    ctx.lineTo(x, height - inset);
+    ctx.stroke();
+  }
+  for (let i = 0; i <= divisionsY; i += 1) {
+    const y = inset + (h / divisionsY) * i;
+    ctx.globalAlpha = Math.max(0.12, 1 - Math.abs(y - cy) / (height * 0.62));
+    ctx.beginPath();
+    ctx.moveTo(inset, y);
+    ctx.lineTo(width - inset, y);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 0.9;
+  ctx.strokeStyle = "#14361f";
+  for (let i = 0; i <= divisionsX * 5; i += 1) {
+    const x = inset + (w / (divisionsX * 5)) * i;
+    ctx.beginPath();
+    ctx.moveTo(x, cy - 3);
+    ctx.lineTo(x, cy + 3);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// Three passes give a phosphor look without neon: wide dim halo, green body,
+// near-white core.
+function phosphor(ctx, draw, intensity = 1) {
+  ctx.save();
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.strokeStyle = `rgba(70, 255, 140, ${0.1 * intensity})`;
+  ctx.lineWidth = 7;
+  draw();
+  ctx.shadowColor = "rgba(70, 255, 140, 0.7)";
+  ctx.shadowBlur = 6;
+  ctx.strokeStyle = `rgba(70, 255, 140, ${0.55 * intensity})`;
+  ctx.lineWidth = 2.4;
+  draw();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = `rgba(215, 255, 243, ${0.9 * intensity})`;
+  ctx.lineWidth = 1.1;
+  draw();
+  ctx.restore();
+}
+
+function drawLoss(now) {
+  const canvas = $("#loss-canvas");
+  const training = state.training;
+  if (!canvas || !training) return;
+  const fit = fitCanvas(canvas);
+  if (!fit) return;
+  const { ctx, width, height } = fit;
+  const inset = 26;
+  graticule(ctx, width, height, 10, 8, inset);
+  const t = state.clock;
+  const plotW = width - inset * 2;
+  const plotH = height - inset * 2;
+  const x = (sec) => inset + (Math.min(sec, state.horizon) / Math.max(1, state.horizon)) * plotW;
+  const y = (loss) => height - inset - (Math.min(loss, training.maxLoss) / training.maxLoss) * plotH;
+  const seen = training.obs.filter((entry) => entry.t <= t);
+
+  // Raw samples sit under the trace like dust on the tube.
+  ctx.fillStyle = "rgba(70, 255, 140, 0.28)";
+  for (const entry of seen) {
+    ctx.beginPath();
+    ctx.arc(x(entry.t), y(Math.abs(entry.err)), 1.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  if (!seen.length) {
+    // Free-running trace until the first dish lands: a small scrolling sine.
+    const phase = reduceMotion() ? 0 : now / 380;
+    phosphor(ctx, () => {
+      ctx.beginPath();
+      for (let px = inset; px <= width - inset; px += 3) {
+        const wave = Math.sin((px - inset) / 26 - phase) * 10 * Math.exp(-((px - width / 2) ** 2) / (width * width * 0.12));
+        if (px === inset) ctx.moveTo(px, height - inset - 12 + wave);
+        else ctx.lineTo(px, height - inset - 12 + wave);
+      }
+      ctx.stroke();
+    }, 0.8);
+    return;
+  }
+
+  const path = () => {
+    ctx.beginPath();
+    ctx.moveTo(x(seen[0].t), y(seen[0].loss));
+    for (let i = 1; i < seen.length; i += 1) {
+      ctx.lineTo(x(seen[i].t), y(seen[i - 1].loss));
+      ctx.lineTo(x(seen[i].t), y(seen[i].loss));
+    }
+    ctx.lineTo(x(t), y(seen[seen.length - 1].loss));
+    ctx.stroke();
+  };
+  phosphor(ctx, path, 0.75);
+
+  // Persistence: the newest stretch of trace burns brighter than the history.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x(Math.max(0, t - 240)), 0, width, height);
+  ctx.clip();
+  phosphor(ctx, path, 1);
+  ctx.restore();
+
+  // Beam head.
+  const headX = x(t);
+  const headY = y(seen[seen.length - 1].loss);
+  ctx.save();
+  ctx.fillStyle = "#d7fff3";
+  ctx.shadowColor = "rgba(70, 255, 140, 0.9)";
+  ctx.shadowBlur = 12;
+  ctx.beginPath();
+  ctx.arc(headX, headY, 3.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.fillStyle = "rgba(47, 191, 105, 0.85)";
+  ctx.font = `12px ${getComputedStyle(document.body).getPropertyValue("--scope-mono") || "monospace"}`;
+  ctx.textAlign = "left";
+  ctx.fillText(`ERR ${Math.round(training.maxLoss)}S`, inset + 6, inset + 14);
+  ctx.textAlign = "right";
+  ctx.fillText("SHIFT TIME →", width - inset - 6, height - inset - 8);
+}
+
+function drawNet() {
+  const canvas = $("#net-canvas");
+  const training = state.training;
+  if (!canvas || !training) return;
+  const fit = fitCanvas(canvas);
+  if (!fit) return;
+  const { ctx, width, height } = fit;
+  graticule(ctx, width, height, 6, 8, 18);
+  const t = state.clock;
+  const font = getComputedStyle(document.body).getPropertyValue("--scope-mono") || "monospace";
+  const items = training.items;
+  const top = 46;
+  const bottom = height - 40;
+  const colIn = Math.max(110, width * 0.34);
+  const colMid = width * 0.64;
+  const colOut = width - 48;
+  const span = (index, count) => (count <= 1 ? (top + bottom) / 2 : top + ((bottom - top) / (count - 1)) * index);
+
+  const stationNodes = STATIONS.map((station, index) => ({ ...station, x: colMid, y: span(index, STATIONS.length + 1) }));
+  const courierNode = { id: "courier", label: "COURIER", x: colMid, y: span(STATIONS.length, STATIONS.length + 1) };
+  const outNode = { id: "fire", label: "FIRE AT", x: colOut, y: (top + bottom) / 2 };
+  const itemNodes = items.map((item, index) => ({ ...item, x: colIn, y: span(index, items.length) }));
+
+  const lastSeen = new Map();
+  const counts = new Map();
+  for (const entry of training.obs) {
+    if (entry.t > t) break;
+    lastSeen.set(entry.itemId, entry.t);
+    lastSeen.set(entry.station, entry.t);
+    counts.set(entry.itemId, (counts.get(entry.itemId) ?? 0) + 1);
+  }
+  for (const entry of training.courier) {
+    if (entry.t > t) break;
+    lastSeen.set("courier", entry.t);
+  }
+  const heat = (id) => {
+    const at = lastSeen.get(id);
+    return at == null ? 0 : Math.exp(-(t - at) / PULSE_SEC);
+  };
+
+  const edge = (a, b, glow) => {
+    ctx.strokeStyle = `rgba(70, 255, 140, ${0.12 + glow * 0.6})`;
+    ctx.lineWidth = 1 + glow * 1.4;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.bezierCurveTo((a.x + b.x) / 2, a.y, (a.x + b.x) / 2, b.y, b.x, b.y);
+    ctx.stroke();
+  };
+  const along = (a, b, p) => {
+    const mx = (a.x + b.x) / 2;
+    const u = 1 - p;
+    return {
+      x: u ** 3 * a.x + 3 * u * u * p * mx + 3 * u * p * p * mx + p ** 3 * b.x,
+      y: u ** 3 * a.y + 3 * u * u * p * a.y + 3 * u * p * p * b.y + p ** 3 * b.y,
+    };
+  };
+
+  for (const node of itemNodes) {
+    const station = stationNodes.find((candidate) => candidate.id === node.station);
+    if (station) edge(node, station, heat(node.itemId));
+  }
+  for (const node of [...stationNodes, courierNode]) edge(node, outNode, heat(node.id));
+
+  // Pulses: each recent observation travels item → station → decision.
+  ctx.save();
+  ctx.fillStyle = "#d7fff3";
+  ctx.shadowColor = "rgba(70, 255, 140, 0.9)";
+  ctx.shadowBlur = 10;
+  for (const entry of training.obs) {
+    if (entry.t > t) break;
+    const age = t - entry.t;
+    if (age > PULSE_SEC) continue;
+    const from = itemNodes.find((node) => node.itemId === entry.itemId);
+    const mid = stationNodes.find((node) => node.id === entry.station);
+    if (!from || !mid) continue;
+    const p = age / PULSE_SEC;
+    const point = p < 0.5 ? along(from, mid, p * 2) : along(mid, outNode, (p - 0.5) * 2);
+    ctx.globalAlpha = 1 - p * 0.6;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 2.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  const node = (n, radius, glow, label, align) => {
+    ctx.save();
+    ctx.fillStyle = "#030805";
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    phosphor(ctx, () => {
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+    }, 0.45 + glow * 0.55);
+    if (glow > 0.02) {
+      ctx.fillStyle = `rgba(70, 255, 140, ${glow * 0.6})`;
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, radius * 0.55, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = `rgba(${glow > 0.3 ? "215, 255, 243" : "47, 191, 105"}, 0.95)`;
+    ctx.font = `12px ${font}`;
+    ctx.textBaseline = "middle";
+    ctx.textAlign = align;
+    const dx = align === "right" ? -radius - 8 : align === "left" ? radius + 8 : 0;
+    const dy = align === "center" ? radius + 14 : 0;
+    ctx.fillText(label, n.x + dx, n.y + dy);
+    ctx.restore();
+  };
+
+  for (const n of itemNodes) {
+    const samples = counts.get(n.itemId) ?? 0;
+    node(n, 4 + Math.min(5, samples * 0.6), heat(n.itemId), samples ? `${String(n.name).toUpperCase().slice(0, 14)}  n${samples}` : String(n.name).toUpperCase().slice(0, 14), "right");
+  }
+  for (const n of stationNodes) node(n, 10, heat(n.id), n.label, "center");
+  node(courierNode, 9, heat("courier"), courierNode.label, "center");
+  node(outNode, 13, Math.max(...stationNodes.map((n) => heat(n.id)), heat("courier")), outNode.label, "center");
+}
+
+function drawModel(now) {
+  if (!state.training) return;
+  drawNet();
+  drawLoss(now);
+}
+
 let lastFrame = performance.now();
 function frame(now) {
   const delta = (now - lastFrame) / 1000;
@@ -856,6 +1244,7 @@ function frame(now) {
     }
     renderBoard();
   }
+  if (state.tab === "model" && state.result) drawModel(now);
   requestAnimationFrame(frame);
 }
 

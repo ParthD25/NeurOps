@@ -4,134 +4,182 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Fireline — kitchen pacing agent</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23c8402a'/%3E%3Crect x='7' y='14' width='4' height='10' fill='%23fff4e8'/%3E%3Crect x='14' y='7' width='4' height='17' fill='%23fff4e8'/%3E%3Crect x='21' y='18' width='4' height='6' fill='%23fff4e8'/%3E%3C/svg%3E" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%2318181b'/%3E%3Cpath d='M16 6c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-4 2-7 2 1 3 3 3 5 1-3 1-6 1-10z' fill='%23e8462a'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=JetBrains+Mono:wght@400;600;700&family=Share+Tech+Mono&display=swap" />
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <div class="mark" aria-hidden="true"><span></span><span></span><span></span></div>
-      <div>
-        <h1>Fireline</h1>
-        <p>decides when to start cooking</p>
-      </div>
+<div class="shell">
+  <aside class="rail">
+    <div class="mark" aria-hidden="true">
+      <svg viewBox="0 0 32 32"><path d="M16 4c1.2 4.6 7 7 7 13.6a7 7 0 0 1-14 0c0-3.4 2.3-4.7 2.3-8 2.3 1.2 3.5 3.4 3.5 5.7 1.2-3.4 1.2-6.9 1.2-11.3z"/></svg>
     </div>
-    <form class="controls" id="run-form">
-      <label>Shift
-        <select id="scenario" name="scenario"></select>
-      </label>
-      <label>Policy
-        <select id="policy" name="policy"></select>
-      </label>
-      <label class="seed">Seed
-        <input id="seed" name="seed" type="number" min="0" max="2147483647" value="7" />
-      </label>
-      <button type="submit" id="run-btn">Run shift</button>
-    </form>
-  </header>
+    <nav class="tabs" role="tablist" aria-label="Views">
+      <button role="tab" aria-selected="true" data-view="board" id="tab-board">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="7" height="16" rx="2"/><rect x="14" y="4" width="7" height="9" rx="2"/><rect x="14" y="16" width="7" height="4" rx="2"/></svg>
+        <span>Pass</span>
+      </button>
+      <button role="tab" aria-selected="false" data-view="floor" id="tab-floor">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="3.5"/><rect x="13" y="13" width="8" height="6" rx="2"/><circle cx="17" cy="6" r="2"/><circle cx="6" cy="17" r="2"/></svg>
+        <span>Floor</span>
+      </button>
+      <button role="tab" aria-selected="false" data-view="plan" id="tab-plan">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg>
+        <span>Fire plan</span>
+      </button>
+      <button role="tab" aria-selected="false" data-view="model" id="tab-model">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="12" cy="12" r="2.4"/><circle cx="19" cy="12" r="2"/><path d="M7 7l3 4M7 17l3-4M14.4 12H17"/></svg>
+        <span>Model</span>
+      </button>
+      <button role="tab" aria-selected="false" data-view="evidence" id="tab-evidence">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+        <span>Evidence</span>
+      </button>
+      <button role="tab" aria-selected="false" data-view="idea" id="tab-idea">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg>
+        <span>Idea</span>
+      </button>
+    </nav>
+  </aside>
 
-  <nav class="tabs" role="tablist" aria-label="Views">
-    <button role="tab" aria-selected="true" data-view="board" id="tab-board">Pass board</button>
-    <button role="tab" aria-selected="false" data-view="floor" id="tab-floor">Floor</button>
-    <button role="tab" aria-selected="false" data-view="plan" id="tab-plan">Fire plan</button>
-    <button role="tab" aria-selected="false" data-view="evidence" id="tab-evidence">Evidence</button>
-    <button role="tab" aria-selected="false" data-view="idea" id="tab-idea">The idea</button>
-    <span class="status" id="status" aria-live="polite"></span>
-  </nav>
-
-  <main>
-    <section class="view" id="view-board" role="tabpanel" aria-labelledby="tab-board">
-      <div class="expo-bar" id="expo-bar"></div>
-      <div class="metrics" id="metrics"></div>
-      <div class="board">
-        <div class="lanes" id="lanes"></div>
-        <div class="tickets" id="tickets"></div>
+  <div class="stage">
+    <header class="topbar">
+      <div class="brand">
+        <h1>Fireline</h1>
+        <p><span class="live-dot" aria-hidden="true"></span><span id="status" aria-live="polite">connecting…</span></p>
       </div>
-      <div class="playbar">
-        <button id="play" class="ghost" type="button" aria-label="Play or pause">Pause</button>
-        <input id="scrub" type="range" min="0" max="100" value="0" step="1" aria-label="Shift clock" />
-        <span class="clock" id="clock">0:00</span>
-        <div class="speeds" role="group" aria-label="Playback speed">
-          <button type="button" data-speed="1" class="ghost on">1×</button>
-          <button type="button" data-speed="8" class="ghost">8×</button>
-          <button type="button" data-speed="30" class="ghost">30×</button>
+      <form class="controls" id="run-form">
+        <label>Shift
+          <select id="scenario" name="scenario"></select>
+        </label>
+        <label>Policy
+          <select id="policy" name="policy"></select>
+        </label>
+        <label class="seed">Seed
+          <input id="seed" name="seed" type="number" min="0" max="2147483647" value="7" />
+        </label>
+        <button type="submit" id="run-btn">Run shift</button>
+      </form>
+    </header>
+
+    <main>
+      <section class="view" id="view-board" role="tabpanel" aria-labelledby="tab-board">
+        <div class="expo-bar" id="expo-bar"></div>
+        <div class="metrics" id="metrics"></div>
+        <div class="board">
+          <div class="lanes" id="lanes"></div>
+          <div class="tickets" id="tickets"></div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <section class="view hidden" id="view-floor" role="tabpanel" aria-labelledby="tab-floor">
-      <div class="evidence-head">
-        <h2>The floor, live</h2>
-        <p>Ten-minute check standard, fifteen-minute food standard. A table turns amber when a check is due and red when it is overdue; a dish turns red when it has sat at the pass too long. Nothing is marked checked automatically.</p>
-      </div>
-      <div class="service-metrics" id="service-metrics"></div>
-      <div class="service-calls" id="service-calls"></div>
-      <div class="floor-map" id="floor-map"></div>
-    </section>
-
-    <section class="view hidden" id="view-plan" role="tabpanel" aria-labelledby="tab-plan">
-      <div class="evidence-head">
-        <h2>Every dish, every table, next 15 minutes</h2>
-        <p>Each row is a dish start, not a ticket. The steak goes on before the fries so both leave the pass together, and each table course has its own serve time.</p>
-      </div>
-      <div class="plan-grid">
-        <div class="plan-panel">
-          <h3>Next fires</h3>
-          <div id="fire-plan"></div>
-        </div>
-        <div class="plan-panel">
-          <h3>Tables</h3>
-          <div id="tables"></div>
-          <h3 class="subhead">Floor / servers</h3>
-          <div id="floor"></div>
-        </div>
-      </div>
-    </section>
-
-    <section class="view hidden" id="view-evidence" role="tabpanel" aria-labelledby="tab-evidence">
-      <div class="evidence-head">
-        <h2>Same shift, five policies</h2>
-        <p>Every policy sees the identical tickets, prep durations and courier arrivals. Only the firing decision changes.</p>
-      </div>
-      <div class="table-wrap">
-        <table id="compare-table">
-          <thead>
-            <tr><th>Policy</th><th>On time</th><th>Food sat</th><th>Courier waited</th><th>p90 wait</th><th>Cost</th><th></th></tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <div class="bars" id="bars"></div>
-      <div class="brief">
-        <div class="brief-head">
-          <h2>Shift brief</h2>
-          <button type="button" id="brief-btn" class="ghost">Write brief</button>
-        </div>
-        <p id="brief-text" class="brief-text">Generated from measured metrics.</p>
-        <details>
-          <summary>Use a model to rewrite it (optional)</summary>
-          <p class="fine">The model may rephrase the numbers, never add one. Any figure not present in the measured facts is rejected and the deterministic brief is shown instead. The key is sent with this one request, kept in memory, never written to disk or logs.</p>
-          <div class="keyrow">
-            <input id="api-key" type="password" placeholder="OpenRouter key" autocomplete="off" spellcheck="false" />
-            <select id="model">
-              <option value="openai/gpt-4o-mini">gpt-4o-mini</option>
-              <option value="google/gemini-2.5-flash">gemini-2.5-flash</option>
-              <option value="anthropic/claude-haiku-4.5">claude-haiku-4.5</option>
-              <option value="openai/gpt-4.1-mini">gpt-4.1-mini</option>
-            </select>
+      <section class="view hidden" id="view-floor" role="tabpanel" aria-labelledby="tab-floor">
+        <div class="view-head">
+          <div>
+            <h2>The floor, live</h2>
+            <p>Ten-minute check standard, fifteen-minute food standard. A table turns amber when a check is due and solid red when a guest has waited too long. Nothing is marked checked automatically.</p>
           </div>
-        </details>
-      </div>
-      <div class="brief coach">
-        <div class="brief-head">
-          <h2>Floor coach</h2>
-          <button type="button" id="coach-btn" class="ghost">Analyze shift</button>
+          <ul class="legend" aria-label="Table status">
+            <li><i class="lg-ok"></i>Seated</li>
+            <li><i class="lg-warn"></i>Check due</li>
+            <li><i class="lg-alert"></i>Waiting long</li>
+            <li><i class="lg-done"></i>Served</li>
+            <li><i class="lg-upcoming"></i>Not seated</li>
+          </ul>
         </div>
-        <p class="fine">Reads per-server pass lag, outage remakes, online holding time and at-risk tickets. The model only phrases the analysis; it cannot change the schedule, complete a ticket or delete an order.</p>
-        <p id="coach-text" class="brief-text">No analysis yet.</p>
-        <p class="source" id="coach-source"></p>
-      </div>
-    </section>
+        <div class="service-metrics" id="service-metrics"></div>
+        <div class="service-calls" id="service-calls"></div>
+        <div class="floor-map" id="floor-map"></div>
+      </section>
+
+      <section class="view hidden" id="view-plan" role="tabpanel" aria-labelledby="tab-plan">
+        <div class="view-head">
+          <div>
+            <h2>Every dish, every table, next 15 minutes</h2>
+            <p>Each row is a dish start, not a ticket. The steak goes on before the fries so both leave the pass together, and each table course has its own serve time.</p>
+          </div>
+        </div>
+        <div class="plan-grid">
+          <div class="plan-panel">
+            <h3>Next fires</h3>
+            <div id="fire-plan"></div>
+          </div>
+          <div class="plan-panel">
+            <h3>Tables</h3>
+            <div id="tables"></div>
+            <h3 class="subhead">Floor / servers</h3>
+            <div id="floor"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view hidden" id="view-model" role="tabpanel" aria-labelledby="tab-model">
+        <div class="view-head">
+          <div>
+            <h2>The model, learning during the shift</h2>
+            <p>Every finished dish is one training step. The trace is prediction error: what the agent expected a dish to take when it decided to fire it, minus what it really took. These are two small online estimators, not a deep network. They are drawn like a training run because that is what they are doing.</p>
+          </div>
+        </div>
+        <div class="scope">
+          <div class="scope-net">
+            <canvas id="net-canvas" aria-label="Estimator graph: menu items feed station prep models, which feed the fire decision"></canvas>
+          </div>
+          <div class="scope-trace">
+            <canvas id="loss-canvas" aria-label="Prediction error over the shift"></canvas>
+          </div>
+          <div class="scope-readouts" id="scope-readouts"></div>
+        </div>
+      </section>
+
+      <section class="view hidden" id="view-evidence" role="tabpanel" aria-labelledby="tab-evidence">
+        <div class="view-head">
+          <div>
+            <h2>Same shift, five policies</h2>
+            <p>Every policy sees the identical tickets, prep durations and courier arrivals. Only the firing decision changes.</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="compare-table">
+            <thead>
+              <tr><th>Policy</th><th class="num">On time</th><th class="num">Food sat</th><th class="num">Courier waited</th><th class="num">p90 wait</th><th class="num">Cost</th><th></th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="bars" id="bars"></div>
+        <div class="brief-grid">
+          <div class="brief">
+            <div class="brief-head">
+              <h2>Shift brief</h2>
+              <button type="button" id="brief-btn" class="ghost">Write brief</button>
+            </div>
+            <p id="brief-text" class="brief-text">Generated from measured metrics.</p>
+            <details>
+              <summary>Use a model to rewrite it (optional)</summary>
+              <p class="fine">The model may rephrase the numbers, never add one. Any figure not present in the measured facts is rejected and the deterministic brief is shown instead. The key is sent with this one request, kept in memory, never written to disk or logs.</p>
+              <div class="keyrow">
+                <input id="api-key" type="password" placeholder="OpenRouter key" autocomplete="off" spellcheck="false" />
+                <select id="model">
+                  <option value="openai/gpt-4o-mini">gpt-4o-mini</option>
+                  <option value="google/gemini-2.5-flash">gemini-2.5-flash</option>
+                  <option value="anthropic/claude-haiku-4.5">claude-haiku-4.5</option>
+                  <option value="openai/gpt-4.1-mini">gpt-4.1-mini</option>
+                </select>
+              </div>
+            </details>
+          </div>
+          <div class="brief coach">
+            <div class="brief-head">
+              <h2>Floor coach</h2>
+              <button type="button" id="coach-btn" class="ghost">Analyze shift</button>
+            </div>
+            <p class="fine">Reads per-server pass lag, outage remakes, online holding time and at-risk tickets. The model only phrases the analysis; it cannot change the schedule, complete a ticket or delete an order.</p>
+            <p id="coach-text" class="brief-text">No analysis yet.</p>
+            <p class="source" id="coach-source"></p>
+          </div>
+        </div>
+      </section>
 
     <section class="view hidden" id="view-idea" role="tabpanel" aria-labelledby="tab-idea">
       <article class="prose">
@@ -176,12 +224,26 @@
         <p>This is a simulator, not a production POS integration. It is calibrated to be plausible, not to match a specific restaurant. The comparison is paired and seeded, so the <em>difference</em> between policies is meaningful; the absolute minutes are illustrative.</p>
       </article>
     </section>
-  </main>
+    </main>
+
+    <div class="playbar">
+      <button id="play" type="button" aria-label="Play or pause">Pause</button>
+      <input id="scrub" type="range" min="0" max="100" value="0" step="1" aria-label="Shift clock" />
+      <span class="clock" id="clock">0:00</span>
+      <div class="speeds" role="group" aria-label="Playback speed">
+        <button type="button" data-speed="1">1×</button>
+        <button type="button" data-speed="8" class="on">8×</button>
+        <button type="button" data-speed="30">30×</button>
+      </div>
+    </div>
+  </div>
+</div>
 
   <div class="scrim hidden" id="scrim"></div>
   <aside class="drawer hidden" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
     <button class="close" id="drawer-close" type="button" aria-label="Close">×</button>
-    <div id="drawer-body"></div>  </aside>
+    <div id="drawer-body"></div>
+  </aside>
 
   <script src="/app.js" type="module"></script>
 </body>
