@@ -1,0 +1,16 @@
+{
+  "name": "fireline",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fireline - a kitchen pacing agent that decides when to fire each ticket, with a measured replay benchmark.",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs",
+    "test": "node --test test/",
+    "eval": "node src/sim/cli.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

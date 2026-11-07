@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fireline — kitchen pacing agent</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23c8402a'/%3E%3Crect x='7' y='14' width='4' height='10' fill='%23fff4e8'/%3E%3Crect x='14' y='7' width='4' height='17' fill='%23fff4e8'/%3E%3Crect x='21' y='18' width='4' height='6' fill='%23fff4e8'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><span></span><span></span><span></span></div>
+      <div>
+        <h1>Fireline</h1>
+        <p>decides when to start cooking</p>
+      </div>
+    </div>
+    <form class="controls" id="run-form">
+      <label>Shift
+        <select id="scenario" name="scenario"></select>
+      </label>
+      <label>Policy
+        <select id="policy" name="policy"></select>
+      </label>
+      <label class="seed">Seed
+        <input id="seed" name="seed" type="number" min="0" max="2147483647" value="7" />
+      </label>
+      <button type="submit" id="run-btn">Run shift</button>
+    </form>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Views">
+    <button role="tab" aria-selected="true" data-view="board" id="tab-board">Pass board</button>
+    <button role="tab" aria-selected="false" data-view="plan" id="tab-plan">Fire plan</button>
+    <button role="tab" aria-selected="false" data-view="evidence" id="tab-evidence">Evidence</button>
+    <button role="tab" aria-selected="false" data-view="idea" id="tab-idea">The idea</button>
+    <span class="status" id="status" aria-live="polite"></span>
+  </nav>
+
+  <main>
+    <section class="view" id="view-board" role="tabpanel" aria-labelledby="tab-board">
+      <div class="metrics" id="metrics"></div>
+      <div class="board">
+        <div class="lanes" id="lanes"></div>
+        <div class="tickets" id="tickets"></div>
+      </div>
+      <div class="playbar">
+        <button id="play" class="ghost" type="button" aria-label="Play or pause">Pause</button>
+        <input id="scrub" type="range" min="0" max="100" value="0" step="1" aria-label="Shift clock" />
+        <span class="clock" id="clock">0:00</span>
+        <div class="speeds" role="group" aria-label="Playback speed">
+          <button type="button" data-speed="1" class="ghost on">1×</button>
+          <button type="button" data-speed="8" class="ghost">8×</button>
+          <button type="button" data-speed="30" class="ghost">30×</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="view hidden" id="view-plan" role="tabpanel" aria-labelledby="tab-plan">
+      <div class="evidence-head">
+        <h2>Every dish, every table, next 15 minutes</h2>
+        <p>Each row is a dish start, not a ticket. The steak goes on before the fries so both leave the pass together, and each table course has its own serve time.</p>
+      </div>
+      <div class="plan-grid">
+        <div class="plan-panel">
+          <h3>Next fires</h3>
+          <div id="fire-plan"></div>
+        </div>
+        <div class="plan-panel">
+          <h3>Tables</h3>
+          <div id="tables"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="view hidden" id="view-evidence" role="tabpanel" aria-labelledby="tab-evidence">
+      <div class="evidence-head">
+        <h2>Same shift, five policies</h2>
+        <p>Every policy sees the identical tickets, prep durations and courier arrivals. Only the firing decision changes.</p>
+      </div>
+      <div class="table-wrap">
+        <table id="compare-table">
+          <thead>
+            <tr><th>Policy</th><th>On time</th><th>Food sat</th><th>Courier waited</th><th>p90 wait</th><th>Cost</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="bars" id="bars"></div>
+      <div class="brief">
+        <div class="brief-head">
+          <h2>Shift brief</h2>
+          <button type="button" id="brief-btn" class="ghost">Write brief</button>
+        </div>
+        <p id="brief-text" class="brief-text">Generated from measured metrics.</p>
+        <details>
+          <summary>Use a model to rewrite it (optional)</summary>
+          <p class="fine">The model may rephrase the numbers, never add one. Any figure not present in the measured facts is rejected and the deterministic brief is shown instead. The key is sent with this one request, kept in memory, never written to disk or logs.</p>
+          <div class="keyrow">
+            <input id="api-key" type="password" placeholder="OpenRouter key" autocomplete="off" spellcheck="false" />
+            <select id="model">
+              <option value="openai/gpt-4o-mini">gpt-4o-mini</option>
+              <option value="google/gemini-2.5-flash">gemini-2.5-flash</option>
+              <option value="anthropic/claude-haiku-4.5">claude-haiku-4.5</option>
+              <option value="openai/gpt-4.1-mini">gpt-4.1-mini</option>
+            </select>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section class="view hidden" id="view-idea" role="tabpanel" aria-labelledby="tab-idea">
+      <article class="prose">
+        <h2>Not another inventory tracker</h2>
+        <p>Inventory tools, invoice reconciliation and bookkeeping dashboards already exist, and DoorDash ships parts of them. The crowded part of the problem is <em>knowing</em> things. The open part is <em>deciding</em>: at 7:12pm, with three stations backed up and a courier who may be four minutes out, do you start the burger now or hold it?</p>
+        <p>Fireline is a tablet agent for the pass that answers that question per ticket, shows the arithmetic behind each answer, and keeps a measured record of whether the calls were good.</p>
+
+        <h3>What it decides</h3>
+        <p>One action per ticket: <strong>fire now</strong> or <strong>fire at t</strong>. Cost is seconds of food sitting plus five times seconds of courier waiting. The five is an assumption, printed on screen, and changing it changes the plan.</p>
+
+        <h3>What it learns</h3>
+        <ul>
+          <li>Prep time per menu item: a prior from the menu (median and spread), updated online from real station service times.</li>
+          <li>Courier bias: an exponential moving average of “arrived minus promised”, so a late market shifts the firing plan within a few tickets.</li>
+          <li>Queue delay: the live backlog on the critical station is added to the forecast before the cost comparison.</li>
+        </ul>
+
+        <h3>Designed for the line, not for a demo</h3>
+        <p>Kitchen staff are wearing gloves and reading the board from three feet away. So: tap targets are 48–64px, a ticket opens with one tap, nothing important is hover-only, the playback controls sit in the bottom bar within reach, body text is 13–16px, focus is visible and trapped inside the drawer, and Escape closes it. No gestures, no long-press, no drag.</p>
+
+        <h3>What it cannot do — say this to judges</h3>
+        <ul>
+          <li>It does not model station changeovers, staff breaks or an item being dropped. Prep times are learned from a shift that is already happening.</li>
+          <li>Cold start is real: with zero observations it believes the menu. The Cold start shift shows exactly how much that costs.</li>
+          <li>Courier ETAs are noisy, and forty percent of tickets can arrive with no courier assigned at all. The agent plans against a distribution, not a fact.</li>
+          <li>Weights are a policy choice, not a discovered truth. The benchmark shows the trade, not a single “correct” answer.</li>
+          <li>No LLM is in the decision path. A model is optional only to rewrite the measured brief, and its output is rejected if it invents a number.</li>
+        </ul>
+
+        <h3>Edge cases in the replay</h3>
+        <ul>
+          <li>Duplicate ticket id: the second ticket is dropped and counted, never cooked twice.</li>
+          <li>86’d item: the ticket is blocked before a station is touched.</li>
+          <li>Promise already in the past: the plan collapses to fire immediately.</li>
+          <li>Empty ticket: blocked, not crashed.</li>
+          <li>Twelve-item party order: the critical path and the backlog decide, not the item count.</li>
+          <li>No courier assigned: the plan uses the promised time plus learned bias with a wider spread.</li>
+          <li>HTML in a ticket note is escaped, never rendered.</li>
+        </ul>
+
+        <h3>Honest limits of the evidence</h3>
+        <p>This is a simulator, not a production POS integration. It is calibrated to be plausible, not to match a specific restaurant. The comparison is paired and seeded, so the <em>difference</em> between policies is meaningful; the absolute minutes are illustrative.</p>
+      </article>
+    </section>
+  </main>
+
+  <div class="scrim hidden" id="scrim"></div>
+  <aside class="drawer hidden" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="close" id="drawer-close" type="button" aria-label="Close">×</button>
+    <div id="drawer-body"></div>  </aside>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
