@@ -1,0 +1,21 @@
+api/index.mjs
+  s_cb39737e8a7088::t_94b0e0a7cc7ed1 1-7
+vercel.json
+  s_cb39737e8a7088::t_33ea49cecd939b 1-9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c5e179f0ea4919c01b3d3db7c491a6892f0eb4e8",
+  "prompts": {},
+  "sessions": {
+    "s_cb39737e8a7088": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "26705a63-34fe-4515-87f3-e199e05a7d2e",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "parth <pdave7848@gmail.com>"
+    }
+  }
+}
