@@ -206,8 +206,8 @@ function bindEvents() {
     renderAgentSource();
     maybeAutoTune();
   });
-  $("#api-key").addEventListener("input", () => renderAgentSource());
-  $("#model").addEventListener("change", () => renderAgentSource());
+  $("#api-key")?.addEventListener("input", () => renderAgentSource());
+  $("#model")?.addEventListener("change", () => renderAgentSource());
   $("#coach-btn").addEventListener("click", writeCoach);
 
   $("#compare-table").addEventListener("click", (event) => {

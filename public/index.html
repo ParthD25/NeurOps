@@ -147,6 +147,7 @@
             <button type="button" id="agent-btn" class="ghost">Ask agent now</button>
           </div>
           <p class="fine" id="agent-source">Every five finished dishes the agent reads the network's recent errors and proposes changes to it: the learning rate, the output bias, or a correction for one dish. With an OpenRouter key the proposal comes from that model; without one, a rule agent proposes. Either way the server applies a change only if it lowers error on the newest dishes, which the proposal was not built from.</p>
+          <!-- OpenRouter key + model picker disabled (not using OpenRouter); rule agent runs instead.
           <div class="keyrow">
             <input id="api-key" type="password" placeholder="OpenRouter key (optional)" autocomplete="off" spellcheck="false" />
             <select id="model">
@@ -156,6 +157,7 @@
               <option value="openai/gpt-4.1-mini">gpt-4.1-mini</option>
             </select>
           </div>
+          -->
           <ol class="agent-log" id="agent-log" aria-live="polite"></ol>
         </div>
         <div class="nn-grid">
