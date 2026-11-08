@@ -1,0 +1,22 @@
+public/index.html
+  s_cb39737e8a7088::t_16655e2ac33e35 150
+  s_cb39737e8a7088::t_feae0706093077 160
+public/app.js
+  s_cb39737e8a7088::t_2e86b7ed3efa05 209-210
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "545c1836e1c91787747e5b87ddfc75ff15a11b16",
+  "prompts": {},
+  "sessions": {
+    "s_cb39737e8a7088": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "26705a63-34fe-4515-87f3-e199e05a7d2e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "parth <pdave7848@gmail.com>"
+    }
+  }
+}
