@@ -1,0 +1,9 @@
+{
+  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }],
+  "functions": {
+    "api/index.mjs": {
+      "includeFiles": "{data/**,public/**,src/**}",
+      "maxDuration": 60
+    }
+  }
+}
