@@ -11,6 +11,7 @@ import { buildCoachBrief, buildCoachFacts, guardCoach, llmCoach } from "./src/co
 import { sanitizeProposal, tuneNetwork } from "./src/tuner.mjs";
 import { publicNetwork, samplesFromSteps, trainShadow } from "./src/sim/nn.mjs";
 import { simulateLifecycle } from "./src/sim/lifecycle.mjs";
+import { NET_PRESETS, netPreset } from "./src/sim/presets.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(HERE, "public");
@@ -144,6 +145,12 @@ async function loadLifecycle() {
     lifecycleCache = simulateLifecycle();
   }
   return lifecycleCache;
+}
+
+function parsePreset(value) {
+  const preset = netPreset(value ?? "production");
+  if (!preset) throw new HttpError(400, `unknown model preset: ${String(value).slice(0, 40)}`);
+  return preset;
 }
 
 function withNames(result) {
@@ -331,6 +338,26 @@ async function handleApi(req, res, url, options) {
     return sendJson(res, 200, await loadLifecycle());
   }
 
+  // Model presets: every saved training configuration, trained on the same
+  // shift so they can be compared; with "preset", that one network in full.
+  if (pathname === "/api/network/presets" && method === "POST") {
+    const body = await readJson(req);
+    const scenarioId = parseScenarioId(body.scenarioId);
+    const policy = parsePolicy(body.policy);
+    const seed = parseSeed(body.seed);
+    const samples = samplesFromSteps(runCached({ scenarioId, policy, seed }).network.steps);
+    const presets = NET_PRESETS.map((preset) => ({
+      id: preset.id,
+      label: preset.label,
+      note: preset.note,
+      options: preset.options,
+      summary: trainShadow(samples, preset.options).summary,
+    }));
+    const chosen = body.preset == null ? null : parsePreset(body.preset);
+    const network = chosen ? publicNetwork(trainShadow(samples, chosen.options)) : null;
+    return sendJson(res, 200, { presets, network });
+  }
+
   if (pathname === "/api/network/tune" && method === "POST") {
     const body = await readJson(req);
     const scenarioId = parseScenarioId(body.scenarioId);
@@ -343,9 +370,18 @@ async function handleApi(req, res, url, options) {
     const samples = samplesFromSteps(result.network.steps);
     const apiKey = typeof body.apiKey === "string" && body.apiKey.trim() ? body.apiKey.trim() : process.env.OPENROUTER_API_KEY;
     const model = typeof body.model === "string" && body.model ? body.model : "openai/gpt-4o-mini";
-    const turn = await tuneNetwork({ samples, interventions, atSec, apiKey, model, fetchImpl: options.llmFetch ?? globalThis.fetch });
+    const preset = parsePreset(body.preset);
+    const turn = await tuneNetwork({
+      samples,
+      interventions,
+      atSec,
+      apiKey,
+      model,
+      fetchImpl: options.llmFetch ?? globalThis.fetch,
+      netOptions: preset.options,
+    });
     const all = turn.intervention ? [...interventions, turn.intervention] : interventions;
-    const network = publicNetwork(trainShadow(samples, { interventions: all }));
+    const network = publicNetwork(trainShadow(samples, { ...preset.options, interventions: all }));
     return sendJson(res, 200, { decision: turn.decision, note: turn.note, facts: turn.facts, interventions: all, network });
   }
 

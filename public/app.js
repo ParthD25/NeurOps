@@ -33,6 +33,11 @@ const state = {
   agentLastStep: 0,
   lifecycle: null,
   runChartsKey: null,
+  scenarios: [],
+  layout: "mixed",
+  netPreset: "production",
+  presetSeq: 0,
+  presetCompare: null,
   serverKey: false,
 };
 
@@ -93,6 +98,8 @@ function setLoading(loading) {
 async function bootstrap() {
   try {
     const meta = await api("/api/scenarios");
+    state.scenarios = meta.scenarios;
+    loadSavedLayout();
     const scenarioSelect = $("#scenario");
     scenarioSelect.innerHTML = meta.scenarios
       .map((scenario) => `<option value="${esc(scenario.id)}">${esc(scenario.title)}</option>`)
@@ -209,6 +216,33 @@ function bindEvents() {
   });
 
   $("#brief-btn").addEventListener("click", writeBrief);
+  $("#view-presets").addEventListener("click", (event) => {
+    const shift = event.target.closest("[data-run-shift]");
+    if (shift) {
+      $("#scenario").value = shift.dataset.runShift;
+      state.scenarioId = shift.dataset.runShift;
+      switchView("board");
+      run();
+      return;
+    }
+    const layout = event.target.closest("[data-layout]");
+    if (layout) {
+      setLayout(layout.dataset.layout);
+      switchView("floor");
+      return;
+    }
+    const preset = event.target.closest("[data-net-preset]");
+    if (preset) {
+      preset.disabled = true;
+      preset.textContent = "Training…";
+      useNetPreset(preset.dataset.netPreset)
+        .then(() => switchView("model"))
+        .catch((error) => {
+          preset.disabled = false;
+          preset.textContent = `Failed: ${error.message}`;
+        });
+    }
+  });
   $("#agent-btn").addEventListener("click", () => askAgent());
   $("#agent-auto").addEventListener("change", (event) => {
     state.agentAuto = event.target.checked;
@@ -234,11 +268,12 @@ function switchView(view) {
   $$(".tabs button[data-view]").forEach((button) => {
     button.setAttribute("aria-selected", String(button.dataset.view === view));
   });
-  for (const name of ["board", "floor", "plan", "model", "evidence", "idea"]) {
+  for (const name of ["board", "floor", "plan", "model", "presets", "evidence", "idea"]) {
     $(`#view-${name}`).classList.toggle("hidden", name !== view);
   }
   if (view === "floor") renderFloor();
   if (view === "plan") renderPlan();
+  if (view === "presets") renderPresets();
   if (view === "model") {
     loadReleases();
     renderModelReadouts();
@@ -261,6 +296,20 @@ async function run() {
     state.decisions = [];
     state.agentLastStep = 0;
     state.runChartsKey = null;
+    // Keep the chosen model preset across shifts.
+    if (state.netPreset !== "production") {
+      try {
+        const preset = await api("/api/network/presets", {
+          scenarioId: state.scenarioId,
+          policy: state.policy,
+          seed: state.seed,
+          preset: state.netPreset,
+        });
+        result.network = preset.network;
+      } catch {
+        state.netPreset = "production";
+      }
+    }
     state.training = computeTraining(result);
     state.clock = 0;
     state.horizon = Math.max(result.durationSec, ...result.events.map((event) => event.t)) + 120;
@@ -589,7 +638,7 @@ function chair(on) {
 // four or more. Filled chairs are occupied, outlined chairs are empty.
 function tableTile(table) {
   const party = Math.max(1, Math.min(12, Number(table.seats) || 2));
-  const capacity = Math.max(2, party + (party % 2));
+  const capacity = Math.max(party, currentLayout().capacity(party));
   const sides = capacity >= 4 ? 2 : 0;
   const rest = capacity - sides;
   const top = Math.ceil(rest / 2);
@@ -690,6 +739,10 @@ function renderFloor() {
   const sections = [...new Set(tables.map((table) => String(table.section)))].sort();
   renderSectionTabs(sections);
   const shown = tables.filter((table) => state.section === "all" || String(table.section) === state.section);
+  const layout = currentLayout();
+  const seatsTotal = shown.reduce((sum, table) => sum + Math.max(table.seats, layout.capacity(table.seats)), 0);
+  const seatsFilled = shown.filter((table) => table.seated && table.state !== "done").reduce((sum, table) => sum + table.seats, 0);
+  $("#layout-note").textContent = `${layout.label} layout · ${seatsFilled} of ${seatsTotal} seats filled`;
 
   $("#table-list").innerHTML = shown.length
     ? shown
@@ -1397,7 +1450,7 @@ async function askAgent() {
   const button = $("#agent-btn");
   button.disabled = true;
   button.textContent = "Agent thinking…";
-  const request = { scenarioId: state.scenarioId, policy: state.policy, seed: state.seed, runId: state.runId };
+  const request = { scenarioId: state.scenarioId, policy: state.policy, seed: state.seed, runId: state.runId, presetSeq: state.presetSeq };
   try {
     const payload = await api("/api/network/tune", {
       scenarioId: request.scenarioId,
@@ -1405,11 +1458,13 @@ async function askAgent() {
       seed: request.seed,
       atSec: Math.round(state.clock),
       interventions: state.interventions,
+      preset: state.netPreset,
       apiKey: $("#api-key")?.value || undefined,
       model: $("#model")?.value ?? "openai/gpt-4o-mini",
     });
-    // A new shift may have started while the agent was thinking.
-    if (request.runId !== state.runId) return;
+    // A new shift or a different model preset may have been chosen while the
+    // agent was thinking; its reply belongs to the old network, so drop it.
+    if (request.runId !== state.runId || request.presetSeq !== state.presetSeq) return;
     state.interventions = payload.interventions;
     state.result.network = payload.network;
     state.training = computeTraining(state.result);
@@ -1562,6 +1617,145 @@ function renderReleases() {
       )
       .join("")}</tbody></table></div>
     <p class="fine">${releases.map((r) => `v${r.version} (day ${r.day}): ${esc(r.note)}`).join(" · ")}</p>`;
+}
+
+// ---------- Presets: shifts, floor layouts, model configurations ----------
+
+// Floor layouts change the furniture drawn on Manage Tables: how many seats
+// each table has. Party sizes and all timings still come from the simulation.
+const LAYOUTS = [
+  {
+    id: "mixed",
+    label: "Mixed floor",
+    note: "Each table sized to its party, rounded up to an even number of seats.",
+    capacity: (party) => Math.max(2, party + (party % 2)),
+  },
+  {
+    id: "booths",
+    label: "Booths",
+    note: "Four-seat booths; parties of five or more get a six-seat booth.",
+    capacity: (party) => (party <= 4 ? 4 : 6),
+  },
+  {
+    id: "banquet",
+    label: "Banquet",
+    note: "Long eight-seat tables for events and private dining.",
+    capacity: (party) => Math.max(8, party + (party % 2)),
+  },
+];
+
+function currentLayout() {
+  return LAYOUTS.find((layout) => layout.id === state.layout) ?? LAYOUTS[0];
+}
+
+function loadSavedLayout() {
+  try {
+    const saved = localStorage.getItem("fireline.layout");
+    if (LAYOUTS.some((layout) => layout.id === saved)) state.layout = saved;
+  } catch {
+    // Storage can be unavailable (private mode); the default layout is fine.
+  }
+}
+
+function setLayout(id) {
+  state.layout = id;
+  try {
+    localStorage.setItem("fireline.layout", id);
+  } catch {
+    // Not persisted; the choice still applies for this visit.
+  }
+  renderLayoutPresets();
+  renderFloor();
+}
+
+function renderShiftPresets() {
+  const box = $("#preset-shifts");
+  if (!state.scenarios.length) {
+    box.innerHTML = `<p class="fine">Shifts are still loading.</p>`;
+    return;
+  }
+  box.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Shift</th><th class="num">Orders</th><th class="num">Length</th><th>What it tests</th><th></th></tr></thead>
+    <tbody>${state.scenarios
+      .map(
+        (scenario) => `<tr class="${scenario.id === state.scenarioId ? "current" : ""}">
+          <td><b>${esc(scenario.title)}</b><div class="fine">${esc(scenario.blurb)}</div></td>
+          <td class="num">${scenario.ticketCount}</td>
+          <td class="num">${Math.round(scenario.durationSec / 60)}m</td>
+          <td>${esc(scenario.watch ?? "")}</td>
+          <td><button type="button" class="ghost" data-run-shift="${esc(scenario.id)}">${scenario.id === state.scenarioId ? "Replay" : "Run"}</button></td>
+        </tr>`,
+      )
+      .join("")}</tbody></table></div>`;
+}
+
+function renderLayoutPresets() {
+  $("#preset-layouts").innerHTML = LAYOUTS.map((layout) => {
+    const seats = [2, 4, 5].map((party) => layout.capacity(party));
+    return `<button type="button" class="layout-option" data-layout="${layout.id}" aria-pressed="${layout.id === state.layout}">
+      <b>${esc(layout.label)}</b>
+      <span>${esc(layout.note)}</span>
+      <small>party of 2 → ${seats[0]} seats · 4 → ${seats[1]} · 5 → ${seats[2]}</small>
+    </button>`;
+  }).join("");
+}
+
+async function renderModelPresets() {
+  const box = $("#preset-models");
+  const key = `${state.scenarioId}:${state.policy}:${state.seed}`;
+  $("#preset-model-hint").textContent = `trained on ${state.result?.scenarioTitle ?? "this shift"} · ${state.result?.network?.steps.length ?? 0} finished dishes`;
+  if (state.presetCompare?.key !== key) {
+    box.innerHTML = `<p class="fine">Training every preset on this shift…</p>`;
+    try {
+      const payload = await api("/api/network/presets", { scenarioId: state.scenarioId, policy: state.policy, seed: state.seed });
+      state.presetCompare = { key, presets: payload.presets };
+    } catch (error) {
+      box.innerHTML = `<p class="error">Could not compare presets: ${esc(error.message)}</p>`;
+      return;
+    }
+  }
+  const best = Math.min(...state.presetCompare.presets.map((preset) => preset.summary.networkMaeSec ?? Infinity));
+  box.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Preset</th><th class="num">Learning rate</th><th class="num">Batch</th><th class="num">Network MAE</th><th class="num">Menu MAE</th><th></th></tr></thead>
+    <tbody>${state.presetCompare.presets
+      .map((preset) => {
+        const active = preset.id === state.netPreset;
+        const mae = preset.summary.networkMaeSec;
+        return `<tr class="${active ? "current" : ""}">
+          <td><b>${esc(preset.label)}</b>${mae === best ? ` <span class="pill ready">best on this shift</span>` : ""}<div class="fine">${esc(preset.note)}</div></td>
+          <td class="num">${preset.options.learningRate}</td>
+          <td class="num">${preset.options.batchSize}${preset.options.batchSize > 1 ? " + replay" : ""}</td>
+          <td class="num">${mae ?? "—"}s</td>
+          <td class="num">${preset.summary.menuOnlyMaeSec ?? "—"}s</td>
+          <td>${active ? `<span class="pill cooking">in use</span>` : `<button type="button" class="ghost" data-net-preset="${esc(preset.id)}">Use</button>`}</td>
+        </tr>`;
+      })
+      .join("")}</tbody></table></div>
+    <p class="fine">MAE is prequential: each dish is scored before the network trains on it. The AI agent tunes whichever preset is in use.</p>`;
+}
+
+function renderPresets() {
+  renderShiftPresets();
+  renderLayoutPresets();
+  renderModelPresets();
+}
+
+// Swaps the shift's network for one trained with another configuration.
+async function useNetPreset(id) {
+  const seq = ++state.presetSeq;
+  const runId = state.runId;
+  const payload = await api("/api/network/presets", { scenarioId: state.scenarioId, policy: state.policy, seed: state.seed, preset: id });
+  // Only the latest switch applies, and only to the shift it was made for.
+  if (seq !== state.presetSeq || runId !== state.runId) return;
+  state.netPreset = id;
+  state.result.network = payload.network;
+  state.interventions = [];
+  state.decisions = [];
+  state.agentLastStep = 0;
+  state.runChartsKey = null;
+  state.training = computeTraining(state.result);
+  renderAgentLog();
+  renderSideModel();
 }
 
 let lastFrame = performance.now();

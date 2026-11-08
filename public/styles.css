@@ -617,3 +617,20 @@ td .ghost { min-height: 36px; padding: 6px 12px; font-size: 12.5px; }
 .run-timeline li.skipped { opacity: 0.55; }
 @media (max-width: 1180px) { .run-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .run-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .run { padding: 12px; } }
+
+/* ---------- presets ---------- */
+
+.preset-card { margin-bottom: 14px; }
+.preset-card table td { vertical-align: top; }
+.preset-card table td .fine { margin-top: 2px; max-width: 60ch; }
+.preset-card tr.current td { background: var(--teal-soft); }
+.preset-card .block-title .hint { font-weight: 500; }
+.layout-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.layout-option { display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line-2); background: var(--surface); min-height: 112px; }
+.layout-option b { font-size: 15px; }
+.layout-option span { font-size: 13px; color: var(--ink-2); line-height: 1.45; }
+.layout-option small { margin-top: auto; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.layout-option:hover { border-color: var(--teal); }
+.layout-option[aria-pressed="true"] { border-color: var(--teal); box-shadow: inset 0 0 0 1px var(--teal); background: var(--teal-soft); }
+.layout-note { margin: -6px 0 10px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+@media (max-width: 760px) { .layout-grid { grid-template-columns: 1fr; } }

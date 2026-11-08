@@ -22,8 +22,8 @@ const MARGIN_SEC = 3;
 const round = (value) => Math.round(value);
 const mean = (list) => (list.length ? list.reduce((a, b) => a + b, 0) / list.length : 0);
 
-export function buildTuneFacts({ samples, interventions = [], atSec, learningRate }) {
-  const run = trainShadow(samples, { interventions, stopAtSec: atSec, learningRate });
+export function buildTuneFacts({ samples, interventions = [], atSec, netOptions = {} }) {
+  const run = trainShadow(samples, { ...netOptions, interventions, stopAtSec: atSec });
   // The agent reads everything except the newest CHECK dishes; those are
   // kept back so the judge can score the proposal on data it never saw.
   const steps = run.steps.slice(0, Math.max(0, run.steps.length - CHECK));
@@ -220,8 +220,8 @@ export async function llmProposal({
 
 // One agent turn: facts -> proposal (LLM or rules) -> sanitize -> judge.
 // Returns the decision and, if accepted, the intervention to replay.
-export async function tuneNetwork({ samples, interventions = [], atSec, apiKey, model, fetchImpl }) {
-  const { run, facts } = buildTuneFacts({ samples, interventions, atSec });
+export async function tuneNetwork({ samples, interventions = [], atSec, apiKey, model, fetchImpl, netOptions = {} }) {
+  const { run, facts } = buildTuneFacts({ samples, interventions, atSec, netOptions });
   let source = "rules";
   let note = apiKey ? null : "No model key supplied, so the rule agent proposed this change.";
   let raw = null;

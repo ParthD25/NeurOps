@@ -170,3 +170,29 @@ test("the release cycle promotes only a challenger that beats production", () =>
     assert.ok(Math.abs(steak.championSec - steak.kitchenSec) < Math.abs(steak.menuSec - steak.kitchenSec), "production model is closer to this kitchen than the menu");
   }
 });
+
+test("model presets are compared on the same shift, and the tune endpoint honours them", async () => {
+  const server = createServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const post = (path, body) =>
+    fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  try {
+    const compare = await (await post("/api/network/presets", { scenarioId: "rush", seed: 7 })).json();
+    assert.deepEqual(compare.presets.map((preset) => preset.id), ["production", "fast-adapt", "conservative", "no-replay"]);
+    assert.equal(compare.network, null);
+    const steps = compare.presets[0].summary.steps;
+    assert.ok(compare.presets.every((preset) => preset.summary.steps === steps), "every preset sees the same dishes");
+
+    const chosen = await (await post("/api/network/presets", { scenarioId: "rush", seed: 7, preset: "fast-adapt" })).json();
+    assert.equal(chosen.network.learningRate, 0.003);
+    assert.equal(chosen.network.batchSize, 8);
+
+    const tuned = await (await post("/api/network/tune", { scenarioId: "rush", seed: 7, atSec: 2400, preset: "conservative" })).json();
+    assert.equal(tuned.network.learningRate, 0.0005);
+
+    assert.equal((await post("/api/network/presets", { scenarioId: "rush", preset: "turbo" })).status, 400);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

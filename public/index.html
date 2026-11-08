@@ -38,6 +38,7 @@
       <button role="tab" aria-selected="false" data-view="floor" id="tab-floor"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h18M5 9v10M19 9v10M9 9v6M15 9v6M8 5h8"/></svg><span>Manage Tables</span></button>
       <button role="tab" aria-selected="false" data-view="plan" id="tab-plan"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg><span>Fire Plan</span></button>
       <button role="tab" aria-selected="false" data-view="model" id="tab-model"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="12" cy="12" r="2.4"/><circle cx="19" cy="12" r="2"/><path d="M7 7l3 4M7 17l3-4M14.4 12H17"/></svg><span>Neural Net</span></button>
+      <button role="tab" aria-selected="false" data-view="presets" id="tab-presets"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><span>Presets</span></button>
       <button role="tab" aria-selected="false" data-view="evidence" id="tab-evidence"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Evidence</span></button>
       <button role="tab" aria-selected="false" data-view="idea" id="tab-idea"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg><span>The Idea</span></button>
     </nav>
@@ -73,6 +74,7 @@
               <h2>Manage Tables</h2>
               <div class="segmented" id="section-tabs" role="group" aria-label="Section"></div>
             </div>
+            <p class="layout-note" id="layout-note"></p>
             <ul class="legend" aria-label="Table status">
               <li><i class="lg-free"></i>Available</li>
               <li><i class="lg-ok"></i>Seated</li>
@@ -203,6 +205,27 @@
               <li><b>AI agent →</b> between dishes, the OpenRouter model (or the rule agent) proposes changes to the network's learning rate and biases. The server clamps them, tries them on a copy, and keeps only changes that lower error on held-out dishes. Every change is logged with its reason.</li>
             </ul>
           </div>
+        </div>
+      </section>
+
+      <section class="view hidden" id="view-presets" role="tabpanel" aria-labelledby="tab-presets">
+        <div class="page-head">
+          <div>
+            <h2>Presets</h2>
+            <p class="lede">Load a demo shift, set up the dining room, or switch the network's training configuration. Model presets are trained on the shift you are viewing, so the numbers compare like for like.</p>
+          </div>
+        </div>
+        <div class="card preset-card">
+          <h3 class="block-title">Shift presets</h3>
+          <div id="preset-shifts"></div>
+        </div>
+        <div class="card preset-card">
+          <h3 class="block-title">Floor layouts <span class="hint">furniture only: changes the tables and chairs drawn, never the guests or the timings</span></h3>
+          <div class="layout-grid" id="preset-layouts"></div>
+        </div>
+        <div class="card preset-card">
+          <h3 class="block-title">Model presets <span class="hint" id="preset-model-hint"></span></h3>
+          <div id="preset-models"></div>
         </div>
       </section>
 
