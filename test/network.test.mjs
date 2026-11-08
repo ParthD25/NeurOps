@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { PrepNet, trainShadow, samplesFromSteps } from "../src/sim/nn.mjs";
+import { PARAM_COUNT, PrepNet, trainShadow, samplesFromSteps } from "../src/sim/nn.mjs";
 import { runOne } from "../src/sim/eval.mjs";
 import { judgeProposal, parseJsonObject, ruleProposal, sanitizeProposal, tuneNetwork } from "../src/tuner.mjs";
 import { simulateLifecycle } from "../src/sim/lifecycle.mjs";
@@ -10,10 +10,37 @@ import { createServer } from "../server.mjs";
 const steakSamples = (count, actualSec) =>
   Array.from({ length: count }, (_, i) => ({ itemId: "steak", serviceSec: actualSec, t: 60 * (i + 1) }));
 
+test("backpropagation matches finite differences on every parameter", () => {
+  const net = new PrepNet({ seed: 3 });
+  for (let p = 0; p < PARAM_COUNT; p += 1) net.theta[p] += Math.sin(p * 12.9898) * 0.3;
+  const items = ["steak", "fries", "salad", "wings"];
+  const targets = [1.4, 0.4, 0.5, 0.9];
+  const lossAt = () => items.reduce((sum, item, k) => sum + 0.5 * (net.forward(item).y - targets[k]) ** 2, 0);
+  const grad = new Float64Array(PARAM_COUNT);
+  items.forEach((item, k) => {
+    const cache = net.forward(item);
+    net.backward(cache, cache.y - targets[k], grad);
+  });
+  let worst = 0;
+  for (let p = 0; p < PARAM_COUNT; p += 1) {
+    const keep = net.theta[p];
+    net.theta[p] = keep + 1e-6;
+    const up = lossAt();
+    net.theta[p] = keep - 1e-6;
+    const down = lossAt();
+    net.theta[p] = keep;
+    const numeric = (up - down) / 2e-6;
+    if (Math.abs(numeric) + Math.abs(grad[p]) > 1e-9) {
+      worst = Math.max(worst, Math.abs(numeric - grad[p]) / (Math.abs(numeric) + Math.abs(grad[p])));
+    }
+  }
+  assert.ok(worst < 1e-5, `worst relative gradient error ${worst}`);
+});
+
 test("a cold network predicts the menu median, then learns this kitchen", () => {
-  const net = new PrepNet();
+  const net = new PrepNet({ learningRate: 0.01 });
   assert.ok(Math.abs(net.predict("steak") - 330) < 25, "starts near the menu's 330s");
-  for (let i = 0; i < 80; i += 1) net.train("steak", 450);
+  for (let i = 0; i < 300; i += 1) net.train("steak", 450);
   assert.ok(Math.abs(net.predict("steak") - 450) < 25, `learned ${Math.round(net.predict("steak"))}s`);
 });
 
@@ -21,7 +48,11 @@ test("training reports error from before each update and records weights", () =>
   const run = trainShadow(steakSamples(5, 400));
   assert.equal(run.steps.length, 5);
   assert.equal(run.steps[0].errSec, run.steps[0].predSec - 400);
-  assert.ok(run.steps[0].params.w1.length > 0 && "ws" in run.steps[0].params);
+  const params = run.steps[0].params;
+  assert.equal(params.inputToH1.length, 22, "one row of first-layer weights per input");
+  assert.equal(params.h1ToH2.length, 8);
+  assert.equal(params.h2ToOut.length, 8);
+  assert.ok(params.gradNorm > 0 && Number.isFinite(params.loss));
   assert.notDeepEqual(run.steps[0].params, run.steps[4].params);
 });
 
@@ -37,7 +68,7 @@ test("interventions are clamped and replayed at their time", () => {
     interventions: [{ atSec: 150, outputBiasSec: 9999, learningRate: 5 }],
   });
   assert.equal(run.interventions.length, 1);
-  assert.equal(run.steps[2].params.lr, 0.2, "learning rate clamped to the 0.2 ceiling");
+  assert.equal(run.steps[2].params.lr, 0.02, "learning rate clamped to the 0.02 ceiling");
   assert.ok(run.steps[2].predSec - run.steps[1].predSec >= 80, "bias capped at +90s, not 9999s");
 });
 
@@ -47,7 +78,7 @@ test("proposals are sanitized: unknown items dropped, values clamped, junk refus
     outputBiasSec: -500,
     itemBiasSec: { steak: 20, "<script>": 10, fries: "fast" },
   });
-  assert.deepEqual(change, { learningRate: 0.2, outputBiasSec: -90, itemBiasSec: { steak: 20 } });
+  assert.deepEqual(change, { learningRate: 0.02, outputBiasSec: -90, itemBiasSec: { steak: 20 } });
   assert.ok(notes.some((note) => note.includes("unknown item")));
   assert.deepEqual(sanitizeProposal("delete everything").change, {});
   assert.deepEqual(parseJsonObject('Sure! {"learningRate": 0.02} hope that helps'), { learningRate: 0.02 });

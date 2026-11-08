@@ -40,9 +40,10 @@ export function simulateLifecycle({
   profile = KITCHEN_PROFILE,
   ordersPerDay = 30,
   withBaseline = true,
+  netOptions = {},
 } = {}) {
   const totalDays = Math.max(1, Math.min(26 * 7, Math.round(weeks * 7)));
-  const challenger = new PrepNet();
+  const challenger = new PrepNet(netOptions);
   let champion = null; // v1 is the menu medians themselves
   let championVersion = 1;
   const releases = [

@@ -1,3 +1,12 @@
+// Vercel Web Analytics: page views are collected only on the deployed site.
+// Locally there is no /_vercel/insights endpoint, so it stays off. Loaded
+// dynamically so a missing or blocked script can never stop the app.
+if (!["localhost", "127.0.0.1", "[::1]"].includes(location.hostname)) {
+  import("/vendor/vercel-analytics.mjs")
+    .then((analytics) => analytics.inject())
+    .catch(() => {});
+}
+
 const state = {
   scenarioId: "rush",
   policy: "adaptive",
@@ -7,7 +16,7 @@ const state = {
   clock: 0,
   horizon: 0,
   playing: true,
-  speed: 8,
+  speed: 15,
   selected: null,
   tab: "board",
   loading: false,
@@ -23,6 +32,7 @@ const state = {
   agentBusy: false,
   agentLastStep: 0,
   lifecycle: null,
+  runChartsKey: null,
   serverKey: false,
 };
 
@@ -232,7 +242,6 @@ function switchView(view) {
   if (view === "model") {
     loadReleases();
     renderModelReadouts();
-    drawModel(performance.now());
   }
 }
 
@@ -251,6 +260,7 @@ async function run() {
     state.interventions = [];
     state.decisions = [];
     state.agentLastStep = 0;
+    state.runChartsKey = null;
     state.training = computeTraining(result);
     state.clock = 0;
     state.horizon = Math.max(result.durationSec, ...result.events.map((event) => event.t)) + 120;
@@ -985,8 +995,6 @@ function updatePlayLabel() {
 // finished. The canvas shows the parameters as they were at the shift clock.
 
 const PULSE_SEC = 45;
-const reduceMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-const scopeFont = () => getComputedStyle(document.body).getPropertyValue("--scope-mono").trim() || "monospace";
 
 function computeTraining(result) {
   const network = result.network;
@@ -1030,7 +1038,19 @@ function computeTraining(result) {
   }
   courier.sort((a, b) => a.t - b.t);
   const maxLoss = Math.max(40, ...steps.map((step) => Math.max(step.netLoss, step.menuLoss))) * 1.2;
-  return { steps, inputNodes, hidden: network.architecture.hidden, learningRate: network.learningRate, mode: network.mode, courier, maxLoss, summary: network.summary };
+  const hidden = network.architecture.hidden;
+  return {
+    steps,
+    inputNodes,
+    hidden,
+    params: network.architecture.params,
+    shape: `12→${hidden.join("→")}→1`,
+    learningRate: network.learningRate,
+    mode: network.mode,
+    courier,
+    maxLoss,
+    summary: network.summary,
+  };
 }
 
 function stepIndexAt(t) {
@@ -1052,40 +1072,243 @@ function currentParams() {
   return null;
 }
 
+function renderModelCard() {
+  const arch = state.result?.network?.architecture;
+  const box = $("#nn-arch");
+  if (!box || !arch || box.dataset.params === String(arch.params)) return;
+  box.dataset.params = String(arch.params);
+  const rows = arch.layers
+    .map((layer) => `<tr><td>${esc(layer.name)}</td><td class="num">${esc(layer.shape)}</td><td class="num">${layer.params}</td></tr>`)
+    .join("");
+  box.innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>Layer</th><th class="num">Shape</th><th class="num">Params</th></tr></thead>
+      <tbody>${rows}<tr class="total"><td>Total trainable</td><td></td><td class="num">${arch.params}</td></tr></tbody>
+    </table></div>
+    <dl class="kv spec">
+      <dt>Loss</dt><dd>${esc(arch.loss)}</dd>
+      <dt>Optimizer</dt><dd>${esc(arch.optimizer)}</dd>
+      <dt>Batch</dt><dd>${state.result.network.batchSize} · replay buffer ${state.result.network.bufferSize}</dd>
+      <dt>Clipping</dt><dd>${esc(arch.clipping)}</dd>
+      <dt>Init</dt><dd>${esc(arch.initialization)}</dd>
+      <dt>Labels</dt><dd>${esc(arch.labels)}</dd>
+    </dl>`;
+}
+
+// ---------- Training run dashboard ----------
+//
+// The standard view of a model in training: metrics against the training step,
+// drawn as the shift plays. Every number comes from the network's own per-step
+// record (result.network.steps), so the curves are the real run.
+
+const PIPELINE = ["Dish done · label", "Forward pass", "Huber loss", "Backprop", "Clip ∇", "AdamW step", "Agent review"];
+
+function stepOfTime(sec) {
+  const steps = state.training?.steps ?? [];
+  let count = 0;
+  while (count < steps.length && steps[count].t <= sec) count += 1;
+  return count;
+}
+
+// One SVG line chart with a fixed x domain (1..total steps), so the curves grow
+// to the right as training proceeds, plus a hover crosshair and readout.
+function runChart(el, { series, total, yMax, yMin = 0, events = [], hLines = [], fmt }) {
+  const W = 520;
+  const H = 190;
+  const pad = { l: 46, r: 12, t: 16, b: 26 };
+  const x = (step) => pad.l + ((step - 1) / Math.max(1, total - 1)) * (W - pad.l - pad.r);
+  const y = (value) => pad.t + (1 - (value - yMin) / Math.max(1e-12, yMax - yMin)) * (H - pad.t - pad.b);
+  const ticks = [yMin, (yMin + yMax) / 2, yMax];
+  const xTicks = [1, Math.round(total / 2), total].filter((v, i, list) => list.indexOf(v) === i);
+  const grid = ticks
+    .map((v) => `<line x1="${pad.l}" x2="${W - pad.r}" y1="${y(v)}" y2="${y(v)}" class="g"/><text x="${pad.l - 6}" y="${y(v) + 3.5}" class="ax" text-anchor="end">${esc(fmt(v))}</text>`)
+    .join("");
+  const xAxis = xTicks
+    .map((v, i) => `<text x="${x(v)}" y="${H - 8}" class="ax" text-anchor="${i === 0 ? "start" : i === xTicks.length - 1 ? "end" : "middle"}">${i === 0 ? `step ${v}` : v}</text>`)
+    .join("");
+  const limits = hLines
+    .map((line) => `<line x1="${pad.l}" x2="${W - pad.r}" y1="${y(line.y)}" y2="${y(line.y)}" class="limit"/><text x="${W - pad.r - 4}" y="${y(line.y) - 4}" class="ax lim" text-anchor="end">${esc(line.label)}</text>`)
+    .join("");
+  const marks = events
+    .map((event) => `<line x1="${x(event.step)}" x2="${x(event.step)}" y1="${pad.t}" y2="${H - pad.b}" class="event"/><text x="${x(event.step) + 3}" y="${pad.t + 9}" class="ax ev">${esc(event.label)}</text>`)
+    .join("");
+  const paths = series
+    .filter((s) => s.points.length)
+    .map((s) => {
+      const d = s.points.map(([step, value], i) => `${i ? "L" : "M"}${x(step).toFixed(1)},${y(Math.min(yMax, Math.max(yMin, value))).toFixed(1)}`).join("");
+      const last = s.points.at(-1);
+      const head = s.head ? `<circle cx="${x(last[0])}" cy="${y(Math.min(yMax, Math.max(yMin, last[1])))}" r="3" class="head" style="--c:${s.color}"/>` : "";
+      return `<path d="${d}" class="ln${s.dash ? " dash" : ""}${s.faint ? " faint" : ""}" style="--c:${s.color}"/>${head}`;
+    })
+    .join("");
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(series.map((s) => s.label).join(", "))} by training step">
+      ${grid}${xAxis}
+      ${limits}${marks}${paths}
+      <line class="cross hidden" y1="${pad.t}" y2="${H - pad.b}"/>
+      <rect class="hit" x="${pad.l}" y="${pad.t}" width="${W - pad.l - pad.r}" height="${H - pad.t - pad.b}"/>
+    </svg><div class="run-tip hidden"></div>`;
+
+  const svg = el.querySelector("svg");
+  const cross = svg.querySelector(".cross");
+  const tip = el.querySelector(".run-tip");
+  const show = (clientX) => {
+    const box = svg.getBoundingClientRect();
+    const sx = ((clientX - box.left) / box.width) * W;
+    const step = Math.max(1, Math.min(total, Math.round(((sx - pad.l) / (W - pad.l - pad.r)) * (total - 1)) + 1));
+    const rows = series
+      .map((s) => {
+        const point = s.points.find(([at]) => at === step);
+        return point ? `<span><i style="--c:${s.color}"></i>${esc(s.label)}<em>${esc(fmt(point[1]))}</em></span>` : "";
+      })
+      .join("");
+    if (!rows) return hide();
+    cross.setAttribute("x1", x(step));
+    cross.setAttribute("x2", x(step));
+    cross.classList.remove("hidden");
+    tip.innerHTML = `<b>Step ${step}</b>${rows}`;
+    tip.classList.remove("hidden");
+    const px = (x(step) / W) * box.width;
+    tip.style.left = `${Math.min(box.width - 190, Math.max(0, px + 10))}px`;
+  };
+  const hide = () => {
+    cross.classList.add("hidden");
+    tip.classList.add("hidden");
+  };
+  const hit = svg.querySelector(".hit");
+  hit.addEventListener("pointermove", (event) => show(event.clientX));
+  hit.addEventListener("pointerdown", (event) => show(event.clientX));
+  hit.addEventListener("pointerleave", hide);
+}
+
+function renderRunCharts(index) {
+  const training = state.training;
+  const total = Math.max(2, training.steps.length);
+  const seen = training.steps.slice(0, index + 1);
+  const at = (fn) => seen.map((step, i) => [i + 1, fn(step)]);
+  const events = state.interventions
+    .filter((change) => change.atSec <= state.clock)
+    .map((change) => ({ step: Math.max(1, stepOfTime(change.atSec)), label: change.source === "llm" ? "AI agent" : "Agent" }));
+
+  const maeMax = Math.max(10, ...seen.map((s) => Math.max(s.netLoss, s.menuLoss))) * 1.15;
+  runChart($("#chart-mae"), {
+    total,
+    yMax: Math.ceil(maeMax / 10) * 10,
+    fmt: (v) => `${Math.round(v)}s`,
+    events,
+    series: [
+      { label: "Menu baseline", color: "var(--run-muted)", dash: true, points: at((s) => s.menuLoss) },
+      { label: "PrepNet", color: "var(--s1)", head: true, points: at((s) => s.netLoss) },
+    ],
+  });
+
+  let ema = null;
+  const lossEma = seen.map((step, i) => {
+    ema = ema == null ? step.params.loss : 0.8 * ema + 0.2 * step.params.loss;
+    return [i + 1, ema];
+  });
+  const lossMax = Math.max(1e-4, ...seen.map((s) => s.params.loss)) * 1.1;
+  runChart($("#chart-loss"), {
+    total,
+    yMax: lossMax,
+    fmt: (v) => v.toExponential(1),
+    events,
+    series: [
+      { label: "Raw", color: "var(--s2)", faint: true, points: at((s) => s.params.loss) },
+      { label: "EMA 0.8", color: "var(--s2)", head: true, points: lossEma },
+    ],
+  });
+
+  const gradMax = Math.max(1.2, ...seen.map((s) => s.params.gradNorm)) * 1.05;
+  runChart($("#chart-grad"), {
+    total,
+    yMax: gradMax,
+    fmt: (v) => v.toFixed(2),
+    hLines: [{ y: 1, label: "clip" }],
+    events,
+    series: [{ label: "‖∇θ‖", color: "var(--s3)", head: true, points: at((s) => s.params.gradNorm) }],
+  });
+
+  const normKeys = [
+    ["dense1", "Dense 1", "var(--s1)"],
+    ["dense2", "Dense 2", "var(--s2)"],
+    ["embedding", "Embedding", "var(--s3)"],
+    ["residual", "Residual", "var(--s4)"],
+  ];
+  const driftMax = Math.max(0.01, ...seen.flatMap((s) => normKeys.map(([key]) => s.params.drift[key]))) * 1.1;
+  runChart($("#chart-norms"), {
+    total,
+    yMax: driftMax,
+    fmt: (v) => v.toFixed(3),
+    events,
+    series: normKeys.map(([key, label, color]) => ({ label, color, head: true, points: at((s) => s.params.drift[key]) })),
+  });
+}
+
 function renderModelReadouts() {
   const training = state.training;
-  const box = $("#scope-readouts");
-  if (!box || !training) return;
+  if (!training) return;
+  renderModelCard();
   const index = stepIndexAt(state.clock);
   const step = index >= 0 ? training.steps[index] : null;
-  const courier = training.courier.filter((entry) => entry.t <= state.clock).at(-1);
-  box.innerHTML = `
-    <span>step<b>${index + 1}/${training.steps.length}</b></span>
-    <span>net error<b>${step ? `${Math.round(step.netLoss)}s` : "—"}</b></span>
-    <span>menu only<b>${step ? `${Math.round(step.menuLoss)}s` : "—"}</b></span>
-    <span>output bias<b>${step ? `${step.params.b2 >= 0 ? "+" : ""}${Math.round(step.params.b2 * 300)}s` : "—"}</b></span>
-    <span>lr<b>${step ? step.params.lr : training.learningRate}</b></span>
-    <span>agent changes<b>${state.interventions.filter((entry) => entry.atSec <= state.clock).length}</b></span>
-    <span>courier bias<b>${courier ? `${courier.biasSec >= 0 ? "+" : ""}${Math.round(courier.biasSec)}s` : "—"}</b></span>`;
-  $("#nn-mode").textContent = `${training.mode} mode · ${training.hidden} hidden units`;
-
   const params = step?.params;
-  const rows = [];
-  if (params) {
-    params.b1.forEach((value, j) => rows.push({ name: `b${j + 1}`, value, hint: `hidden ${j + 1} bias` }));
-    params.w2.forEach((value, j) => rows.push({ name: `w${j + 1}→out`, value, hint: `hidden ${j + 1} to output` }));
-    rows.push({ name: "b out", value: params.b2, hint: "output bias" });
+  const total = training.steps.length;
+  const delta = step ? Math.round(((step.netLoss - step.menuLoss) / Math.max(1, step.menuLoss)) * 1000) / 10 : null;
+  const deltaHtml =
+    delta == null
+      ? ""
+      : `<span class="delta ${delta < -0.5 ? "good" : delta > 0.5 ? "bad" : "flat"}">${delta < -0.5 ? "↓" : delta > 0.5 ? "↑" : "→"} ${Math.abs(delta)}% vs menu</span>`;
+  const applied = state.interventions.filter((entry) => entry.atSec <= state.clock).length;
+  $("#run-tiles").innerHTML = `
+    <div class="run-tile"><span>Step</span><b>${index + 1}<small>/ ${total}</small></b></div>
+    <div class="run-tile"><span>Holdout MAE</span><b>${step ? Math.round(step.netLoss) : "—"}<small>s</small></b>${deltaHtml}</div>
+    <div class="run-tile"><span>Train loss</span><b>${params ? params.loss.toExponential(2) : "—"}</b></div>
+    <div class="run-tile"><span>Grad norm</span><b>${params ? params.gradNorm.toFixed(3) : "—"}</b></div>
+    <div class="run-tile"><span>Learning rate</span><b>${params ? params.lr : training.learningRate}</b></div>
+    <div class="run-tile"><span>Agent interventions</span><b>${applied}</b></div>`;
+  $("#run-state").innerHTML =
+    index < 0
+      ? `<i class="idle"></i>waiting for the first finished dish`
+      : index + 1 >= total
+        ? `<i class="done"></i>run complete · ${total} steps`
+        : `<i class="live"></i>training · ${clockLabel(state.clock)} shift time`;
+  $("#nn-mode").textContent = `${training.mode} mode · ${training.params} params · ${training.shape}`;
+
+  // The training loop for the newest dish, advancing with shift time.
+  const age = step ? state.clock - step.t : Infinity;
+  const activeStage = age < PULSE_SEC ? Math.min(PIPELINE.length - 1, Math.floor((age / PULSE_SEC) * PIPELINE.length)) : PIPELINE.length;
+  $("#run-timeline").innerHTML = PIPELINE.map((label, i) => {
+    const status = !step ? "pending" : i < activeStage ? "done" : i === activeStage ? "active" : "pending";
+    const agentIdle = i === PIPELINE.length - 1 && !state.agentAuto && !state.agentBusy;
+    const cls = agentIdle && status !== "pending" ? "skipped" : status;
+    return `<li class="${cls}"><span class="tick">${cls === "done" ? "✓" : cls === "active" ? "●" : cls === "skipped" ? "–" : ""}</span>${esc(label)}</li>`;
+  }).join("");
+
+  const key = `${index}|${state.interventions.length}`;
+  if (state.runChartsKey !== key) {
+    state.runChartsKey = key;
+    renderRunCharts(index);
   }
+
+  const rows = params
+    ? [
+        { name: "Embedding", value: params.norms.embedding, hint: "L2 norm of item and station embeddings" },
+        { name: "Dense 1", value: params.norms.dense1, hint: "L2 norm of the 12→16 weights" },
+        { name: "Dense 2", value: params.norms.dense2, hint: "L2 norm of the 16→8 weights" },
+        { name: "Output", value: params.norms.output, hint: "L2 norm of the 8→1 weights" },
+        { name: "Residual", value: params.norms.residual, hint: "L2 norm of the per-item residual biases" },
+        { name: "Out bias", value: params.b3, hint: "output bias (×300 = seconds)", signed: true },
+        { name: "‖∇‖", value: params.gradNorm, hint: "gradient norm of the last step, before clipping at 1.0" },
+      ]
+    : [];
   const scale = Math.max(0.05, ...rows.map((row) => Math.abs(row.value)));
   $("#nn-params").innerHTML = rows.length
     ? rows
         .map((row) => {
-          const width = (Math.abs(row.value) / scale) * 50;
-          const left = row.value >= 0 ? 50 : 50 - width;
-          return `<div class="param-row" title="${esc(row.hint)}"><span>${esc(row.name)}</span><span class="wbar"><i class="${row.value < 0 ? "neg" : ""}" style="left:${left.toFixed(1)}%;width:${width.toFixed(1)}%"></i></span><b>${row.value.toFixed(4)}</b></div>`;
+          const width = row.signed ? (Math.abs(row.value) / scale) * 50 : (Math.abs(row.value) / scale) * 100;
+          const left = row.signed ? (row.value >= 0 ? 50 : 50 - width) : 0;
+          return `<div class="param-row" title="${esc(row.hint)}"><span>${esc(row.name)}</span><span class="wbar${row.signed ? " signed" : ""}"><i class="${row.value < 0 ? "neg" : ""}" style="left:${left.toFixed(1)}%;width:${width.toFixed(1)}%"></i></span><b>${row.value.toFixed(3)}</b></div>`;
         })
         .join("")
-    : `<p class="fine">No dish has finished yet, so the network still holds its starting weights. Press play.</p>`;
+    : `<p class="fine">No dish has finished yet, so the network still holds its initial weights. Press play.</p>`;
 }
 
 function renderSideModel() {
@@ -1104,316 +1327,6 @@ function renderSideModel() {
     <span class="big">${index >= 0 ? `${Math.round(seen.at(-1).netLoss)}s` : "—"}</span> error
     <div>step ${index + 1} of ${training.steps.length}</div>
     <svg class="spark" viewBox="0 0 100 34" preserveAspectRatio="none" aria-hidden="true"><polyline points="${line}" fill="none" stroke="#1a9e8f" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>`;
-}
-
-function fitCanvas(canvas) {
-  const ratio = Math.min(2, window.devicePixelRatio || 1);
-  const width = canvas.clientWidth;
-  const height = canvas.clientHeight;
-  if (!width || !height) return null;
-  if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
-    canvas.width = Math.round(width * ratio);
-    canvas.height = Math.round(height * ratio);
-  }
-  const ctx = canvas.getContext("2d");
-  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-  ctx.clearRect(0, 0, width, height);
-  return { ctx, width, height };
-}
-
-function graticule(ctx, width, height, divisionsX, divisionsY, inset) {
-  const cx = width / 2;
-  const cy = height / 2;
-  const w = width - inset * 2;
-  const h = height - inset * 2;
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = "#0d2216";
-  for (let i = 0; i <= divisionsX; i += 1) {
-    const x = inset + (w / divisionsX) * i;
-    ctx.globalAlpha = Math.max(0.12, 1 - Math.abs(x - cx) / (width * 0.62));
-    ctx.beginPath();
-    ctx.moveTo(x, inset);
-    ctx.lineTo(x, height - inset);
-    ctx.stroke();
-  }
-  for (let i = 0; i <= divisionsY; i += 1) {
-    const y = inset + (h / divisionsY) * i;
-    ctx.globalAlpha = Math.max(0.12, 1 - Math.abs(y - cy) / (height * 0.62));
-    ctx.beginPath();
-    ctx.moveTo(inset, y);
-    ctx.lineTo(width - inset, y);
-    ctx.stroke();
-  }
-  ctx.globalAlpha = 0.9;
-  ctx.strokeStyle = "#14361f";
-  for (let i = 0; i <= divisionsX * 5; i += 1) {
-    const x = inset + (w / (divisionsX * 5)) * i;
-    ctx.beginPath();
-    ctx.moveTo(x, cy - 3);
-    ctx.lineTo(x, cy + 3);
-    ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
-}
-
-// Wide dim halo, green body, near-white core: phosphor without neon.
-function phosphor(ctx, draw, intensity = 1) {
-  ctx.save();
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
-  ctx.strokeStyle = `rgba(70, 255, 140, ${0.1 * intensity})`;
-  ctx.lineWidth = 7;
-  draw();
-  ctx.shadowColor = "rgba(70, 255, 140, 0.7)";
-  ctx.shadowBlur = 6;
-  ctx.strokeStyle = `rgba(70, 255, 140, ${0.55 * intensity})`;
-  ctx.lineWidth = 2.4;
-  draw();
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = `rgba(215, 255, 243, ${0.9 * intensity})`;
-  ctx.lineWidth = 1.1;
-  draw();
-  ctx.restore();
-}
-
-function drawLoss(now) {
-  const canvas = $("#loss-canvas");
-  const training = state.training;
-  if (!canvas || !training) return;
-  const fit = fitCanvas(canvas);
-  if (!fit) return;
-  const { ctx, width, height } = fit;
-  const inset = 26;
-  graticule(ctx, width, height, 10, 8, inset);
-  const t = state.clock;
-  const plotW = width - inset * 2;
-  const plotH = height - inset * 2;
-  const x = (sec) => inset + (Math.min(sec, state.horizon) / Math.max(1, state.horizon)) * plotW;
-  const y = (loss) => height - inset - (Math.min(loss, training.maxLoss) / training.maxLoss) * plotH;
-  const seen = training.steps.slice(0, stepIndexAt(t) + 1);
-
-  ctx.fillStyle = "rgba(70, 255, 140, 0.28)";
-  for (const step of seen) {
-    ctx.beginPath();
-    ctx.arc(x(step.t), y(Math.abs(step.errSec)), 1.6, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  ctx.font = `12px ${scopeFont()}`;
-  if (!seen.length) {
-    const phase = reduceMotion() ? 0 : now / 380;
-    phosphor(ctx, () => {
-      ctx.beginPath();
-      for (let px = inset; px <= width - inset; px += 3) {
-        const wave = Math.sin((px - inset) / 26 - phase) * 10 * Math.exp(-((px - width / 2) ** 2) / (width * width * 0.12));
-        if (px === inset) ctx.moveTo(px, height - inset - 12 + wave);
-        else ctx.lineTo(px, height - inset - 12 + wave);
-      }
-      ctx.stroke();
-    }, 0.8);
-    ctx.fillStyle = "rgba(47, 191, 105, 0.85)";
-    ctx.textAlign = "center";
-    ctx.fillText("WAITING FOR THE FIRST FINISHED DISH", width / 2, height / 2);
-    return;
-  }
-
-  const stepPath = (key) => () => {
-    ctx.beginPath();
-    ctx.moveTo(x(seen[0].t), y(seen[0][key]));
-    for (let i = 1; i < seen.length; i += 1) {
-      ctx.lineTo(x(seen[i].t), y(seen[i - 1][key]));
-      ctx.lineTo(x(seen[i].t), y(seen[i][key]));
-    }
-    ctx.lineTo(x(t), y(seen.at(-1)[key]));
-    ctx.stroke();
-  };
-
-  // Baseline: the menu medians alone, dim and dashed.
-  ctx.save();
-  ctx.setLineDash([4, 5]);
-  ctx.strokeStyle = "rgba(70, 255, 140, 0.35)";
-  ctx.lineWidth = 1.2;
-  stepPath("menuLoss")();
-  ctx.restore();
-
-  // Agent interventions: a marker where each accepted change landed.
-  ctx.save();
-  ctx.font = `11px ${scopeFont()}`;
-  ctx.textAlign = "center";
-  for (const change of state.interventions) {
-    if (change.atSec > t) continue;
-    const mx = x(change.atSec);
-    ctx.strokeStyle = "rgba(215, 255, 243, 0.35)";
-    ctx.setLineDash([2, 4]);
-    ctx.beginPath();
-    ctx.moveTo(mx, inset);
-    ctx.lineTo(mx, height - inset);
-    ctx.stroke();
-    ctx.fillStyle = "rgba(215, 255, 243, 0.85)";
-    ctx.fillText(change.source === "llm" ? "AI" : "A", mx, inset - 8);
-  }
-  ctx.restore();
-
-  phosphor(ctx, stepPath("netLoss"), 0.7);
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(x(Math.max(0, t - 240)), 0, width, height);
-  ctx.clip();
-  phosphor(ctx, stepPath("netLoss"), 1);
-  ctx.restore();
-
-  const headY = y(seen.at(-1).netLoss);
-  ctx.save();
-  ctx.fillStyle = "#d7fff3";
-  ctx.shadowColor = "rgba(70, 255, 140, 0.9)";
-  ctx.shadowBlur = 12;
-  ctx.beginPath();
-  ctx.arc(x(t), headY, 3.2, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-
-  ctx.fillStyle = "rgba(47, 191, 105, 0.9)";
-  ctx.textAlign = "left";
-  ctx.fillText(`ERROR · ${Math.round(training.maxLoss)}S FULL SCALE`, inset + 6, inset + 14);
-  ctx.fillText("━ NETWORK   ┅ MENU ONLY", inset + 6, inset + 30);
-  ctx.textAlign = "right";
-  ctx.fillText("SHIFT TIME →", width - inset - 6, height - inset - 8);
-}
-
-function drawNet(now) {
-  const canvas = $("#net-canvas");
-  const training = state.training;
-  if (!canvas || !training) return;
-  const fit = fitCanvas(canvas);
-  if (!fit) return;
-  const { ctx, width, height } = fit;
-  graticule(ctx, width, height, 6, 8, 18);
-  const t = state.clock;
-  const params = currentParams();
-  const inputs = training.inputNodes;
-  const top = 34;
-  const bottom = height - 34;
-  const span = (index, count) => (count <= 1 ? (top + bottom) / 2 : top + ((bottom - top) / (count - 1)) * index);
-  const colIn = Math.max(118, width * 0.36);
-  const colHid = width * 0.64;
-  const colOut = width - 46;
-  const inNodes = inputs.map((node, index) => ({ ...node, x: colIn, y: span(index, inputs.length) }));
-  const hidNodes = Array.from({ length: training.hidden }, (_, j) => ({ j, x: colHid, y: span(j + 0.5, training.hidden + 1) * 0.86 + (top + bottom) * 0.07 }));
-  const outNode = { x: colOut, y: (top + bottom) / 2 };
-
-  const weight = (inNode, j) => (params ? params.w1[j][inNode.index] ?? 0 : 0);
-  let scale = 0.05;
-  if (params) {
-    for (const node of inNodes) for (const h of hidNodes) scale = Math.max(scale, Math.abs(weight(node, h.j)));
-    for (const value of params.w2) scale = Math.max(scale, Math.abs(value));
-  }
-
-  const lastSeen = new Map();
-  const index = stepIndexAt(t);
-  for (let i = 0; i <= index; i += 1) {
-    const step = training.steps[i];
-    lastSeen.set(step.itemId, step.t);
-    lastSeen.set(step.station, step.t);
-  }
-  const heat = (id) => {
-    const at = lastSeen.get(id);
-    return at == null ? 0 : Math.exp(-(t - at) / PULSE_SEC);
-  };
-  const recentAny = index >= 0 ? Math.exp(-(t - training.steps[index].t) / PULSE_SEC) : 0;
-
-  const edge = (a, b, w, glow) => {
-    const mag = Math.min(1, Math.abs(w) / scale);
-    ctx.save();
-    if (w < 0) ctx.setLineDash([3, 4]);
-    ctx.strokeStyle = `rgba(70, 255, 140, ${0.06 + mag * 0.55 + glow * 0.3})`;
-    ctx.lineWidth = 0.6 + mag * 2.4;
-    ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.bezierCurveTo((a.x + b.x) / 2, a.y, (a.x + b.x) / 2, b.y, b.x, b.y);
-    ctx.stroke();
-    ctx.restore();
-  };
-  const along = (a, b, p) => {
-    const mx = (a.x + b.x) / 2;
-    const u = 1 - p;
-    return {
-      x: u ** 3 * a.x + 3 * u * u * p * mx + 3 * u * p * p * mx + p ** 3 * b.x,
-      y: u ** 3 * a.y + 3 * u * u * p * a.y + 3 * u * p * p * b.y + p ** 3 * b.y,
-    };
-  };
-
-  for (const node of inNodes) for (const h of hidNodes) edge(node, h, weight(node, h.j), heat(node.id) * 0.5);
-  for (const h of hidNodes) edge(h, outNode, params ? params.w2[h.j] : 0, recentAny * 0.4);
-
-  // Each recent training step travels input → its strongest hidden unit → output.
-  ctx.save();
-  ctx.fillStyle = "#d7fff3";
-  ctx.shadowColor = "rgba(70, 255, 140, 0.9)";
-  ctx.shadowBlur = 10;
-  for (let i = Math.max(0, index - 12); i <= index; i += 1) {
-    const step = training.steps[i];
-    const age = t - step.t;
-    if (age > PULSE_SEC) continue;
-    const from = inNodes.find((node) => node.id === step.itemId);
-    if (!from) continue;
-    const strongest = hidNodes.reduce((best, h) => (Math.abs(step.params.w1[h.j][from.index] ?? 0) > Math.abs(step.params.w1[best.j][from.index] ?? 0) ? h : best), hidNodes[0]);
-    const p = age / PULSE_SEC;
-    const point = p < 0.5 ? along(from, strongest, p * 2) : along(strongest, outNode, (p - 0.5) * 2);
-    ctx.globalAlpha = 1 - p * 0.6;
-    ctx.beginPath();
-    ctx.arc(point.x, point.y, 2.6, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.restore();
-
-  const font = scopeFont();
-  const node = (n, radius, glow, label, align, sub) => {
-    ctx.save();
-    ctx.fillStyle = "#030805";
-    ctx.beginPath();
-    ctx.arc(n.x, n.y, radius, 0, Math.PI * 2);
-    ctx.fill();
-    phosphor(ctx, () => {
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, radius, 0, Math.PI * 2);
-      ctx.stroke();
-    }, 0.45 + glow * 0.55);
-    if (glow > 0.02) {
-      ctx.fillStyle = `rgba(70, 255, 140, ${glow * 0.6})`;
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, radius * 0.55, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.fillStyle = `rgba(${glow > 0.3 ? "215, 255, 243" : "47, 191, 105"}, 0.95)`;
-    ctx.font = `12px ${font}`;
-    ctx.textBaseline = "middle";
-    ctx.textAlign = align;
-    const dx = align === "right" ? -radius - 8 : 0;
-    const dy = align === "center" ? radius + 13 : 0;
-    ctx.fillText(label, n.x + dx, n.y + dy);
-    if (sub) {
-      ctx.fillStyle = "rgba(47, 191, 105, 0.7)";
-      ctx.fillText(sub, n.x + dx, n.y + dy + 13);
-    }
-    ctx.restore();
-  };
-
-  for (const n of inNodes) node(n, n.station ? 5 : 4.5, heat(n.id), n.label, "right");
-  for (const h of hidNodes) node(h, 10, recentAny * 0.6, `H${h.j + 1}`, "center", params ? `b ${params.b1[h.j].toFixed(2)}` : "b 0.00");
-  const lastStep = index >= 0 ? training.steps[index] : null;
-  node(outNode, 13, recentAny, "PREP", "center", lastStep ? `${lastStep.predSec}s` : "");
-  if (!reduceMotion() && !lastStep) {
-    ctx.fillStyle = "rgba(47, 191, 105, 0.6)";
-    ctx.font = `11px ${font}`;
-    ctx.textAlign = "center";
-    ctx.fillText("STARTING WEIGHTS", width * 0.5, 16 + Math.sin(now / 600) * 1.5);
-  }
-}
-
-function drawModel(now) {
-  if (!state.training) return;
-  drawNet(now);
-  drawLoss(now);
 }
 
 // ---------- AI agent: proposes changes to the network as dishes finish ----------
@@ -1473,7 +1386,7 @@ function renderAgentLog() {
 function renderAgentSource(note) {
   const hasKey = Boolean($("#api-key")?.value.trim()) || state.serverKey;
   const who = hasKey
-    ? `OpenRouter · ${$("#model").value}${$("#api-key")?.value.trim() ? "" : " (server key)"}`
+    ? `OpenRouter · ${$("#model")?.value ?? "server model"}${$("#api-key")?.value.trim() ? "" : " (server key)"}`
     : "rule agent (no key)";
   $("#agent-source").textContent = `${state.agentAuto ? "Live tuning is on" : "Live tuning is off"} · proposals from ${who}. ${note ?? "Changes are applied only if they lower error on the newest finished dishes."}`;
 }
@@ -1663,7 +1576,6 @@ function frame(now) {
     }
     renderBoard();
   }
-  if (state.tab === "model" && state.result) drawModel(now);
   requestAnimationFrame(frame);
 }
 

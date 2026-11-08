@@ -9,9 +9,13 @@
     "dev": "node --watch server.mjs",
     "test": "node --test test/*.mjs",
     "eval": "node src/sim/cli.mjs",
-    "lifecycle": "node src/sim/lifecycle-cli.mjs"
+    "lifecycle": "node src/sim/lifecycle-cli.mjs",
+    "vendor": "node scripts/vendor.mjs"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "@vercel/analytics": "^2.0.1"
   }
 }

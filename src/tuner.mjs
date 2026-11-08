@@ -16,8 +16,8 @@ import { LIMITS, INPUTS, SCALE, trainShadow } from "./sim/nn.mjs";
 import { menuName } from "./sim/menu.mjs";
 
 const WINDOW = 12; // dishes the agent reads
-const CHECK = 6; // newest dishes held out to judge the proposal
-const MARGIN_SEC = 1;
+const CHECK = 10; // newest dishes held out to judge the proposal
+const MARGIN_SEC = 3;
 
 const round = (value) => Math.round(value);
 const mean = (list) => (list.length ? list.reduce((a, b) => a + b, 0) / list.length : 0);
@@ -41,7 +41,7 @@ export function buildTuneFacts({ samples, interventions = [], atSec, learningRat
       atSec: round(atSec),
       dishesSeen: steps.length,
       learningRate: run.net.learningRate,
-      outputBiasSec: round(run.net.b2 * SCALE),
+      outputBiasSec: round(run.net.outputBias * SCALE),
       recentMaeSec: round(mean(recent.map((step) => Math.abs(step.errSec)))),
       previousMaeSec: before.length ? round(mean(before.map((step) => Math.abs(step.errSec)))) : null,
       recentMeanErrorSec: round(mean(recent.map((step) => step.errSec))),
