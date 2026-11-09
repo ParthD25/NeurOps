@@ -156,6 +156,10 @@ test("static files are served and traversal is refused", async () => {
   const index = await call("/");
   assert.equal(index.response.status, 200);
   assert.match(index.text, /Fireline/);
+  assert.match(index.text, /landing\.css/, "the front door is the landing page");
+  const app = await call("/app");
+  assert.equal(app.response.status, 200);
+  assert.match(app.text, /id="run-form"/, "the app lives at /app");
 
   const traversal = await call("/%2e%2e/package.json");
   assert.equal(traversal.response.status, 404);

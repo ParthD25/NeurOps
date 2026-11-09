@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fireline · fire every dish at the right second</title>
+<meta name="description" content="Fireline is a kitchen pacing agent for the pass. It decides when to start each dish so a ticket lands together, learns your kitchen's real cook times, and retrains itself every three weeks." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%231a9e8f'/%3E%3Cpath d='M16 6c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-4 2-7 2 1 3 3 3 5 1-3 1-6 1-10z' fill='%23fff'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" />
+<link rel="stylesheet" href="/landing.css" />
+</head>
+<body>
+<header class="nav">
+  <a class="brand" href="/" aria-label="Fireline home">
+    <span class="logo" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 4c1.2 4.6 7 7 7 13.6a7 7 0 0 1-14 0c0-3.4 2.3-4.7 2.3-8 2.3 1.2 3.5 3.4 3.5 5.7 1.2-3.4 1.2-6.9 1.2-11.3z"/></svg></span>
+    <b>Fireline</b>
+  </a>
+  <nav class="links" aria-label="Sections">
+    <a href="#how">How it works</a>
+    <a href="#product">Product</a>
+    <a href="#model">The model</a>
+    <a href="#limits">Limits</a>
+  </nav>
+  <a class="btn small" href="/app">Open the demo</a>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow"><span class="dot" aria-hidden="true"></span>Kitchen pacing agent for the pass</p>
+      <h1>Fire every dish at the <em>right second.</em></h1>
+      <p class="lede">Fireline decides when to start each dish so a whole ticket lands at the pass together. It learns your kitchen's real cook times from every finished plate, and retrains itself every three weeks.</p>
+      <div class="ctas">
+        <a class="btn" href="/app">Run a live shift</a>
+        <a class="btn ghost" href="#model">See how it learns</a>
+      </div>
+      <p class="note">Runs in the browser. No sign-up, no POS integration needed for the demo.</p>
+    </div>
+    <div class="hero-media">
+      <video autoplay muted loop playsinline preload="metadata" poster="/media/fireline-hero-poster.jpg" aria-label="Fireline on a phone: the order line, prep-time error falling from 29.9 to 21.7 seconds, and the model release card">
+        <source src="/media/fireline-hero-16x9.mp4" type="video/mp4" />
+      </video>
+    </div>
+  </section>
+
+  <section class="proof" aria-label="Results">
+    <p class="proof-label">Measured in a 63-day simulated kitchen, same orders with and without Fireline's model releases</p>
+    <div class="stats">
+      <div class="stat"><b>29.9s → 21.7s</b><span>prep-time forecast error, first vs last three weeks</span></div>
+      <div class="stat"><b>−27%</b><span>forecast error after two model releases</span></div>
+      <div class="stat"><b>1449 vs 1502</b><span>kitchen cost score with releases vs never retraining (lower is better)</span></div>
+      <div class="stat"><b>536</b><span>trained parameters, updated after every finished dish</span></div>
+    </div>
+  </section>
+
+  <section class="how" id="how">
+    <h2>How it works</h2>
+    <p class="section-lede">Three loops, from one ticket to a whole season.</p>
+    <ol class="steps">
+      <li>
+        <span class="num">01</span>
+        <h3>Every ticket: a start time per dish</h3>
+        <p>The steak goes on before the fries so both leave the pass together. Each fire time weighs food sitting against a courier or guest waiting, and shows its arithmetic.</p>
+      </li>
+      <li>
+        <span class="num">02</span>
+        <h3>Every finished dish: one training step</h3>
+        <p>The kitchen's own timestamps label the data: done minus start, in seconds. No manual tagging. The network predicts each dish before it learns from it, so its error is honest.</p>
+      </li>
+      <li>
+        <span class="num">03</span>
+        <h3>Every three weeks: a model release</h3>
+        <p>The retrained network replaces the one in production only if it was more accurate on the last three days. If not, production stays as it is.</p>
+      </li>
+    </ol>
+  </section>
+
+  <section class="product" id="product">
+    <h2>Built for the pass, not for a demo</h2>
+    <p class="section-lede">Gloved hands, three feet from the screen. Tap targets of 48px and up, nothing hidden behind hover, nothing bumped automatically.</p>
+    <div class="cards">
+      <article class="card">
+        <span class="tag red">Order Line</span>
+        <h3>Orders go red when someone has waited too long</h3>
+        <p>Wait list, in kitchen, at the pass, stalled: filter in one tap. Open any order to see why it fires when it does.</p>
+      </article>
+      <article class="card">
+        <span class="tag teal">Manage Tables</span>
+        <h3>The floor, with timers per table</h3>
+        <p>Ten-minute check standard, fifteen-minute food standard. Servers get a call before a table turns red.</p>
+      </article>
+      <article class="card">
+        <span class="tag lav">Fire plan</span>
+        <h3>Every dish start for the next 15 minutes</h3>
+        <p>Each row is a dish, not a ticket, with the station and the time it needs to leave the pass.</p>
+      </article>
+      <article class="card">
+        <span class="tag teal">Neural net</span>
+        <h3>A training run you can watch</h3>
+        <p>Loss, holdout error against the menu baseline, gradient norm and per-layer drift, plotted by training step as the shift plays.</p>
+      </article>
+      <article class="card">
+        <span class="tag lav">AI agent</span>
+        <h3>Tunes the network, under a guard</h3>
+        <p>An OpenRouter model, or a rule agent offline, proposes learning-rate and bias changes. A change is kept only if it lowers error on dishes it never saw.</p>
+      </article>
+      <article class="card">
+        <span class="tag red">Presets</span>
+        <h3>Shifts, floor layouts, model settings</h3>
+        <p>Load a Friday rush or a station outage, switch the dining room to booths, compare training configurations on the same shift.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="model" id="model">
+    <div class="model-copy">
+      <h2>A real network, small on purpose</h2>
+      <p>PrepNet learns how long each dish really takes in your kitchen, as a correction on top of the menu's estimate. With no data it predicts the menu exactly; every finished plate moves it toward the truth.</p>
+      <ul class="spec">
+        <li><b>Architecture</b><span>item and station embeddings → 16 → 8 → 1, SiLU, per-dish residual bias</span></li>
+        <li><b>Training</b><span>AdamW on replayed mini-batches, Huber loss, gradient clipping at 1.0</span></li>
+        <li><b>Labels</b><span>self-labelled from the kitchen's own timestamps; no manual tagging</span></li>
+        <li><b>Releases</b><span>champion vs challenger every 21 days, promoted only when better</span></li>
+        <li><b>Verified</b><span>backpropagation checked against finite differences on every parameter</span></li>
+      </ul>
+    </div>
+    <figure class="model-fig">
+      <svg viewBox="0 0 420 300" role="img" aria-label="Network diagram: dish and station inputs, two hidden layers, one prep-time output">
+        <g class="edges">
+          <path d="M70 60 C150 60 150 50 210 50" /><path d="M70 60 C150 60 150 120 210 120" /><path d="M70 120 C150 120 150 50 210 50" />
+          <path d="M70 120 C150 120 150 190 210 190" /><path d="M70 180 C150 180 150 120 210 120" /><path d="M70 180 C150 180 150 250 210 250" />
+          <path d="M70 240 C150 240 150 190 210 190" /><path d="M70 240 C150 240 150 250 210 250" />
+          <path d="M210 50 C260 50 260 110 300 110" /><path d="M210 120 C260 120 260 110 300 110" /><path d="M210 190 C260 190 260 190 300 190" />
+          <path d="M210 250 C260 250 260 190 300 190" /><path d="M300 110 C340 110 340 150 370 150" /><path d="M300 190 C340 190 340 150 370 150" />
+        </g>
+        <g class="nodes">
+          <circle cx="70" cy="60" r="9" /><circle cx="70" cy="120" r="9" /><circle cx="70" cy="180" r="9" /><circle cx="70" cy="240" r="9" />
+          <circle cx="210" cy="50" r="8" /><circle cx="210" cy="120" r="8" /><circle cx="210" cy="190" r="8" /><circle cx="210" cy="250" r="8" />
+          <circle cx="300" cy="110" r="8" /><circle cx="300" cy="190" r="8" />
+          <circle class="out" cx="370" cy="150" r="13" />
+        </g>
+        <g class="labels">
+          <text x="50" y="64" text-anchor="end">Steak</text><text x="50" y="124" text-anchor="end">Fries</text>
+          <text x="50" y="184" text-anchor="end">Salad</text><text x="50" y="244" text-anchor="end">Grill</text>
+          <text x="210" y="285" text-anchor="middle">Dense 16</text><text x="300" y="285" text-anchor="middle">Dense 8</text>
+          <text x="370" y="182" text-anchor="middle">Prep s</text>
+        </g>
+      </svg>
+      <figcaption>Simplified: the real input layer covers every dish and station on the menu.</figcaption>
+    </figure>
+  </section>
+
+  <section class="limits" id="limits">
+    <h2>What it doesn't do (yet)</h2>
+    <ul>
+      <li>The results above come from a seeded simulation of one kitchen, not a production POS.</li>
+      <li>On a single cold shift the network matches the menu's estimates; the gains come over weeks of service.</li>
+      <li>No language model is in the firing decision. The AI agent only adjusts training, and only when a held-out check says it helps.</li>
+      <li>It doesn't model staff breaks, station changeovers or a dropped plate.</li>
+    </ul>
+  </section>
+
+  <section class="cta">
+    <h2>Run a Friday rush in your browser.</h2>
+    <p>Watch the pass board, the floor and the network train, at up to 60× speed.</p>
+    <a class="btn" href="/app">Open the demo</a>
+  </section>
+</main>
+
+<footer class="foot">
+  <span>Fireline</span>
+  <span>A kitchen pacing agent with a measured replay benchmark.</span>
+  <a href="/app">Demo</a>
+</footer>
+
+<script type="module">
+  // Vercel Web Analytics on the deployed site only; never blocks the page.
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(location.hostname)) {
+    import("/vendor/vercel-analytics.mjs").then((analytics) => analytics.inject()).catch(() => {});
+  }
+  // Respect reduced motion: show the poster instead of a looping video.
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const video = document.querySelector(".hero-media video");
+    video.removeAttribute("autoplay");
+    video.pause();
+  }
+</script>
+</body>
+</html>

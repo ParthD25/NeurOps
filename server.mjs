@@ -178,8 +178,11 @@ function compareCached({ scenarioId, seed }) {
   return compareCache.get(key);
 }
 
+// The landing page is the front door; the app lives at /app.
+const PAGES = { "/": "landing.html", "/app": "index.html", "/app/": "index.html" };
+
 async function serveStatic(res, pathname) {
-  const relative = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
+  const relative = Object.hasOwn(PAGES, pathname) ? PAGES[pathname] : pathname.replace(/^\/+/, "");
   const filePath = path.resolve(PUBLIC_DIR, relative);
   if (filePath !== PUBLIC_DIR && !filePath.startsWith(PUBLIC_DIR + path.sep)) {
     throw new HttpError(404, "not found");
