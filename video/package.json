@@ -1,0 +1,16 @@
+{
+  "name": "fireline-video",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.jsx",
+    "render": "remotion render src/index.jsx HeroWide out/fireline-hero-16x9.mp4 && remotion render src/index.jsx HeroTall out/fireline-hero-9x16.mp4"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.300",
+    "@remotion/google-fonts": "^4.0.300",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.300"
+  }
+}
